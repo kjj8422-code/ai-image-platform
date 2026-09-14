@@ -21,6 +21,41 @@ const extractImageUrl = (output: unknown): string => {
   return String(item);
 };
 
+// Claude(claude-4.5-haiku, Replicate 경유)는 텍스트를 토큰 조각 배열로 스트리밍 출력한다.
+// 배열이면 이어붙이고, 아니면 문자열로 변환한다.
+const extractText = (output: unknown): string => {
+  if (Array.isArray(output)) {
+    return output.join("").trim();
+  }
+  return String(output).trim();
+};
+
+// 사용자의 한글(또는 짧은) 프롬프트를 Flux가 잘 이해하는 상세한 영어 프롬프트로
+// 번역·보강한다. Flux 계열 모델은 영어 위주로 학습되어 한글 프롬프트를 그대로 넣으면
+// 의도와 무관한 결과가 나오는 문제가 있어 반드시 거쳐야 하는 단계.
+// 실패하더라도 전체 생성이 막히지 않도록 원본 프롬프트로 안전하게 대체한다.
+const enhancePrompt = async (
+  replicate: Replicate,
+  originalPrompt: string,
+): Promise<string> => {
+  try {
+    const output = await replicate.run("anthropic/claude-4.5-haiku", {
+      input: {
+        prompt:
+          "Translate and enhance the following image description into a single vivid, detailed English prompt for an AI image generator. Add professional photography terms (lighting, composition, mood) where helpful. Output ONLY the final English prompt with no preamble, no quotes, no explanation.\n\n" +
+          `Description: ${originalPrompt}`,
+        max_tokens: 1024,
+      },
+    });
+
+    const enhanced = extractText(output);
+    return enhanced || originalPrompt;
+  } catch (err) {
+    console.error("프롬프트 보강 실패, 원본 프롬프트로 대체:", err);
+    return originalPrompt;
+  }
+};
+
 export async function POST(request: NextRequest) {
   try {
     if (!supabaseUrl || !supabasePublishableKey) {
@@ -70,15 +105,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. Replicate(Flux 1.1 Pro)로 이미지 생성 — 품질 정책상 항상 Pro 모델만 사용
     const replicate = new Replicate({ auth: replicateApiToken });
+
+    // 3. 프롬프트 자동 번역·보강 (한글 등 비영어 입력도 Flux가 정확히 이해하도록)
+    const enhancedPrompt = await enhancePrompt(replicate, prompt);
+
+    // 4. Replicate(Flux 1.1 Pro)로 이미지 생성 — 품질 정책상 항상 Pro 모델만 사용
     const output = await replicate.run("black-forest-labs/flux-1.1-pro", {
-      input: { prompt },
+      input: { prompt: enhancedPrompt },
     });
 
     const imageUrl = extractImageUrl(output);
 
-    return NextResponse.json({ imageUrl });
+    return NextResponse.json({ imageUrl, enhancedPrompt });
   } catch (err) {
     console.error("이미지 생성 오류:", err);
     const message =

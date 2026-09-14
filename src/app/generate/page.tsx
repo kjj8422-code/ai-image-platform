@@ -9,6 +9,7 @@ export default function GeneratePage() {
   const { user, loading: userLoading } = useSupabaseUser();
   const [prompt, setPrompt] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string>("");
+  const [enhancedPrompt, setEnhancedPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
 
@@ -42,6 +43,9 @@ export default function GeneratePage() {
       }
 
       setImageUrl(result.imageUrl);
+      setEnhancedPrompt(
+        typeof result.enhancedPrompt === "string" ? result.enhancedPrompt : "",
+      );
     } catch (err) {
       setErrorMessage(
         err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.",
@@ -109,12 +113,19 @@ export default function GeneratePage() {
       )}
 
       {imageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element -- 외부 도메인 이미지라 next/image 설정 전까지 img 태그 사용
-        <img
-          src={imageUrl}
-          alt={prompt}
-          className="w-full max-w-xl rounded-xl border border-zinc-200 dark:border-zinc-800"
-        />
+        <div className="flex w-full max-w-xl flex-col gap-2">
+          {/* eslint-disable-next-line @next/next/no-img-element -- 외부 도메인 이미지라 next/image 설정 전까지 img 태그 사용 */}
+          <img
+            src={imageUrl}
+            alt={prompt}
+            className="w-full rounded-xl border border-zinc-200 dark:border-zinc-800"
+          />
+          {enhancedPrompt && (
+            <p className="text-xs text-zinc-400 dark:text-zinc-500">
+              AI가 보강한 프롬프트: {enhancedPrompt}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
