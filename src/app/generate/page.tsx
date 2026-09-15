@@ -10,6 +10,10 @@ export default function GeneratePage() {
   const [prompt, setPrompt] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string>("");
   const [enhancedPrompt, setEnhancedPrompt] = useState<string>("");
+  const [quota, setQuota] = useState<{
+    freeRemaining: number;
+    balance: number;
+  } | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
 
@@ -46,6 +50,12 @@ export default function GeneratePage() {
       setEnhancedPrompt(
         typeof result.enhancedPrompt === "string" ? result.enhancedPrompt : "",
       );
+      if (result.quota) {
+        setQuota({
+          freeRemaining: result.quota.freeRemaining,
+          balance: result.quota.balance,
+        });
+      }
     } catch (err) {
       setErrorMessage(
         err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.",
@@ -123,6 +133,12 @@ export default function GeneratePage() {
           {enhancedPrompt && (
             <p className="text-xs text-zinc-400 dark:text-zinc-500">
               AI가 보강한 프롬프트: {enhancedPrompt}
+            </p>
+          )}
+          {quota && (
+            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              오늘 무료 남은 횟수: {quota.freeRemaining}회 · 보유 크레딧:{" "}
+              {quota.balance}장
             </p>
           )}
         </div>

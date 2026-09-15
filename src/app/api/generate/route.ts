@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Replicate from "replicate";
 import { createClient } from "@supabase/supabase-js";
+import { consumeOneCredit, getQuotaStatus } from "@/lib/credits";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -105,19 +106,36 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 3. 크레딧/무료 수량 확인 — 하나도 없으면 비싼 API를 호출하기 전에 먼저 차단
+    const userId = userData.user.id;
+    const quotaBefore = await getQuotaStatus(userId);
+
+    if (quotaBefore.freeRemaining <= 0 && quotaBefore.balance <= 0) {
+      return NextResponse.json(
+        {
+          error:
+            "오늘 무료 크레딧을 모두 사용하셨어요. 크레딧을 구매하시거나 내일 다시 시도해주세요.",
+        },
+        { status: 402 },
+      );
+    }
+
     const replicate = new Replicate({ auth: replicateApiToken });
 
-    // 3. 프롬프트 자동 번역·보강 (한글 등 비영어 입력도 Flux가 정확히 이해하도록)
+    // 4. 프롬프트 자동 번역·보강 (한글 등 비영어 입력도 Flux가 정확히 이해하도록)
     const enhancedPrompt = await enhancePrompt(replicate, prompt);
 
-    // 4. Replicate(Flux 1.1 Pro)로 이미지 생성 — 품질 정책상 항상 Pro 모델만 사용
+    // 5. Replicate(Flux 1.1 Pro)로 이미지 생성 — 품질 정책상 항상 Pro 모델만 사용
     const output = await replicate.run("black-forest-labs/flux-1.1-pro", {
       input: { prompt: enhancedPrompt },
     });
 
     const imageUrl = extractImageUrl(output);
 
-    return NextResponse.json({ imageUrl, enhancedPrompt });
+    // 6. 생성이 실제로 성공했을 때만 크레딧을 차감한다 (실패한 시도는 무료).
+    const quotaAfter = await consumeOneCredit(userId);
+
+    return NextResponse.json({ imageUrl, enhancedPrompt, quota: quotaAfter });
   } catch (err) {
     console.error("이미지 생성 오류:", err);
     const message =
