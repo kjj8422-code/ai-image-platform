@@ -93,3 +93,50 @@ export const consumeOneCredit = async (
 
   throw new Error("크레딧이 부족합니다.");
 };
+
+// 결제 완료(Stripe 웹훅)로 크레딧을 지급한다. 같은 결제 건이 웹훅 재전송 등으로
+// 중복 호출되어도 두 번 지급되지 않도록, 호출하는 쪽(webhook)에서 stripeEventId를
+// credit_transactions에 함께 기록해 이미 처리된 이벤트인지 먼저 확인해야 한다.
+export const grantPurchasedCredits = async (
+  userId: string,
+  amount: number,
+  stripeEventId: string,
+): Promise<void> => {
+  const { data: existing } = await supabaseAdmin
+    .from("credit_transactions")
+    .select("id")
+    .eq("type", "purchase")
+    .eq("stripe_event_id", stripeEventId)
+    .maybeSingle();
+
+  if (existing) {
+    // 이미 이 결제 이벤트로 크레딧을 지급한 적이 있음 — 중복 지급 방지.
+    return;
+  }
+
+  const { data: walletRow } = await supabaseAdmin
+    .from("credit_wallets")
+    .select("balance")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const currentBalance = walletRow?.balance ?? 0;
+
+  const { error: upsertError } = await supabaseAdmin
+    .from("credit_wallets")
+    .upsert(
+      { user_id: userId, balance: currentBalance + amount },
+      { onConflict: "user_id" },
+    );
+  if (upsertError) throw upsertError;
+
+  const { error: txError } = await supabaseAdmin
+    .from("credit_transactions")
+    .insert({
+      user_id: userId,
+      amount,
+      type: "purchase",
+      stripe_event_id: stripeEventId,
+    });
+  if (txError) throw txError;
+};

@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 
-export default function GeneratePage() {
+const GenerateContent = () => {
   const { user, loading: userLoading } = useSupabaseUser();
+  const searchParams = useSearchParams();
   const [prompt, setPrompt] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string>("");
   const [enhancedPrompt, setEnhancedPrompt] = useState<string>("");
@@ -15,7 +17,55 @@ export default function GeneratePage() {
     balance: number;
   } | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [isCheckingOut, setIsCheckingOut] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [checkoutMessage, setCheckoutMessage] = useState<string>("");
+
+  useEffect(() => {
+    const checkout = searchParams.get("checkout");
+    if (checkout === "success") {
+      setCheckoutMessage(
+        "결제가 완료되었습니다! 크레딧이 곧 반영됩니다 (반영까지 몇 초 걸릴 수 있어요).",
+      );
+    } else if (checkout === "cancel") {
+      setCheckoutMessage("결제가 취소되었습니다.");
+    }
+  }, [searchParams]);
+
+  const handleBuyCredits = async () => {
+    setErrorMessage("");
+    setIsCheckingOut(true);
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        throw new Error("로그인이 필요합니다.");
+      }
+
+      const response = await fetch("/api/checkout", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error ?? "결제 페이지 생성에 실패했습니다.");
+      }
+
+      window.location.href = result.url;
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.",
+      );
+      setIsCheckingOut(false);
+    }
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -95,6 +145,12 @@ export default function GeneratePage() {
         AI 이미지 생성
       </h1>
 
+      {checkoutMessage && (
+        <p className="text-sm font-medium text-green-600 dark:text-green-400">
+          {checkoutMessage}
+        </p>
+      )}
+
       <form
         onSubmit={(event) => void handleSubmit(event)}
         className="flex w-full max-w-xl flex-col gap-3"
@@ -115,6 +171,17 @@ export default function GeneratePage() {
           {isGenerating ? "생성 중... (최대 1분 정도 걸릴 수 있어요)" : "이미지 생성하기"}
         </button>
       </form>
+
+      <button
+        type="button"
+        onClick={() => void handleBuyCredits()}
+        disabled={isCheckingOut}
+        className="text-sm font-medium text-blue-600 underline hover:no-underline disabled:opacity-50 dark:text-blue-400"
+      >
+        {isCheckingOut
+          ? "결제 페이지 준비 중..."
+          : "크레딧 100장 구매하기 (15,000원)"}
+      </button>
 
       {errorMessage && (
         <p className="text-sm text-red-600 dark:text-red-400">
@@ -144,5 +211,13 @@ export default function GeneratePage() {
         </div>
       )}
     </div>
+  );
+};
+
+export default function GeneratePage() {
+  return (
+    <Suspense fallback={null}>
+      <GenerateContent />
+    </Suspense>
   );
 }
