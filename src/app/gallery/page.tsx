@@ -207,28 +207,38 @@ export default function GalleryPage() {
           {images.map((image) => {
             const isSelected = selectedIds.includes(image.id);
             return (
-              <button
+              <div
                 key={image.id}
-                type="button"
-                onClick={() => toggleSelect(image.id)}
                 className={`relative overflow-hidden rounded-xl border-2 transition-colors ${
                   isSelected
                     ? "border-black dark:border-white"
                     : "border-transparent"
                 }`}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element -- 외부/스토리지 이미지, next/image 설정 전까지 img 태그 사용 */}
-                <img
-                  src={image.imageUrl}
-                  alt={image.prompt ?? "저장된 이미지"}
-                  className="aspect-square w-full object-cover"
-                />
+                <button
+                  type="button"
+                  onClick={() => toggleSelect(image.id)}
+                  className="block w-full"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- 외부/스토리지 이미지, next/image 설정 전까지 img 태그 사용 */}
+                  <img
+                    src={image.imageUrl}
+                    alt={image.prompt ?? "저장된 이미지"}
+                    className="aspect-square w-full object-cover"
+                  />
+                </button>
                 {isSelected && (
                   <span className="absolute right-1 top-1 rounded-full bg-black px-2 py-0.5 text-[10px] font-medium text-white dark:bg-white dark:text-black">
                     선택됨
                   </span>
                 )}
-              </button>
+                <Link
+                  href={`/edit/${image.id}`}
+                  className="absolute bottom-1 left-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-black"
+                >
+                  편집
+                </Link>
+              </div>
             );
           })}
         </div>
