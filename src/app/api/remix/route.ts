@@ -2,25 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import Replicate from "replicate";
 import { requireUser } from "@/lib/requireUser";
 import { getOwnedGalleryImages } from "@/lib/gallery";
+import { enhancePrompt, extractImageUrl, withRetryOn429 } from "@/lib/replicateHelpers";
 
 const replicateApiToken = process.env.REPLICATE_API_TOKEN;
 
 export const maxDuration = 60;
 
-const extractImageUrl = (output: unknown): string => {
-  const item = Array.isArray(output) ? output[0] : output;
-
-  if (
-    item &&
-    typeof item === "object" &&
-    "url" in item &&
-    typeof (item as { url: unknown }).url === "function"
-  ) {
-    return String((item as { url: () => unknown }).url());
-  }
-
-  return String(item);
-};
+// 합성/리믹스 전용 번역·보강 지침. 일반 이미지 설명 보강과 달리, "따로따로
+// 배치된 콜라주"가 아니라 "하나의 사진처럼 자연스럽게 합쳐진 장면"이 나오도록
+// 모델에게 명시적으로 지시하는 문구를 항상 덧붙인다.
+const REMIX_INSTRUCTION =
+  "Translate and enhance the following image-editing instruction into a single, clear English instruction for an AI photo-compositing model that merges multiple reference images. " +
+  "Output ONLY the final English instruction with no preamble, no quotes, no explanation. " +
+  "Always make sure the instruction explicitly asks for ONE seamless, cohesive photograph with a single unified background, consistent lighting and perspective across all subjects — and explicitly forbid a collage, split-screen, grid, or side-by-side arrangement of separate images.";
 
 // 갤러리에 저장해둔 이미지 2장 이상을 참고 이미지로 지정해, 새 프롬프트로
 // 하나의 합성된 이미지를 만든다. (Flux Kontext의 다중 이미지 참조 기능 사용)
@@ -69,16 +63,26 @@ export async function POST(request: NextRequest) {
 
     const replicate = new Replicate({ auth: replicateApiToken });
 
-    const output = await replicate.run("flux-kontext-apps/multi-image-list", {
-      input: {
-        prompt,
-        input_images: ownedImages.map((image) => image.imageUrl),
-      },
-    });
+    // 한글 등 비영어 입력도 정확히 반영되도록 번역·보강 + "콜라주 금지, 한 장면으로
+    // 자연스럽게 합치기" 지침을 자동으로 덧붙인다.
+    const enhancedPrompt = await enhancePrompt(
+      replicate,
+      prompt,
+      REMIX_INSTRUCTION,
+    );
+
+    const output = await withRetryOn429(() =>
+      replicate.run("flux-kontext-apps/multi-image-list", {
+        input: {
+          prompt: enhancedPrompt,
+          input_images: ownedImages.map((image) => image.imageUrl),
+        },
+      }),
+    );
 
     const imageUrl = extractImageUrl(output);
 
-    return NextResponse.json({ imageUrl });
+    return NextResponse.json({ imageUrl, enhancedPrompt });
   } catch (err) {
     console.error("합성 생성 오류:", err);
     const message =
