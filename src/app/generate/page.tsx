@@ -1,71 +1,17 @@
 "use client";
 
-import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 
-const GenerateContent = () => {
+export default function GeneratePage() {
   const { user, loading: userLoading } = useSupabaseUser();
-  const searchParams = useSearchParams();
   const [prompt, setPrompt] = useState<string>("");
   const [imageUrl, setImageUrl] = useState<string>("");
   const [enhancedPrompt, setEnhancedPrompt] = useState<string>("");
-  const [quota, setQuota] = useState<{
-    freeRemaining: number;
-    balance: number;
-  } | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [isCheckingOut, setIsCheckingOut] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
-  const [checkoutMessage, setCheckoutMessage] = useState<string>("");
-
-  useEffect(() => {
-    const checkout = searchParams.get("checkout");
-    if (checkout === "success") {
-      setCheckoutMessage(
-        "결제가 완료되었습니다! 크레딧이 곧 반영됩니다 (반영까지 몇 초 걸릴 수 있어요).",
-      );
-    } else if (checkout === "cancel") {
-      setCheckoutMessage("결제가 취소되었습니다.");
-    }
-  }, [searchParams]);
-
-  const handleBuyCredits = async () => {
-    setErrorMessage("");
-    setIsCheckingOut(true);
-
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        throw new Error("로그인이 필요합니다.");
-      }
-
-      const response = await fetch("/api/checkout", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result?.error ?? "결제 페이지 생성에 실패했습니다.");
-      }
-
-      window.location.href = result.url;
-    } catch (err) {
-      setErrorMessage(
-        err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.",
-      );
-      setIsCheckingOut(false);
-    }
-  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -100,12 +46,6 @@ const GenerateContent = () => {
       setEnhancedPrompt(
         typeof result.enhancedPrompt === "string" ? result.enhancedPrompt : "",
       );
-      if (result.quota) {
-        setQuota({
-          freeRemaining: result.quota.freeRemaining,
-          balance: result.quota.balance,
-        });
-      }
     } catch (err) {
       setErrorMessage(
         err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.",
@@ -133,7 +73,7 @@ const GenerateContent = () => {
           href="/login"
           className="rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
         >
-          로그인 / 회원가입
+          로그인
         </Link>
       </div>
     );
@@ -144,12 +84,6 @@ const GenerateContent = () => {
       <h1 className="text-2xl font-semibold text-black dark:text-white">
         AI 이미지 생성
       </h1>
-
-      {checkoutMessage && (
-        <p className="text-sm font-medium text-green-600 dark:text-green-400">
-          {checkoutMessage}
-        </p>
-      )}
 
       <form
         onSubmit={(event) => void handleSubmit(event)}
@@ -172,17 +106,6 @@ const GenerateContent = () => {
         </button>
       </form>
 
-      <button
-        type="button"
-        onClick={() => void handleBuyCredits()}
-        disabled={isCheckingOut}
-        className="text-sm font-medium text-blue-600 underline hover:no-underline disabled:opacity-50 dark:text-blue-400"
-      >
-        {isCheckingOut
-          ? "결제 페이지 준비 중..."
-          : "크레딧 100장 구매하기 (15,000원)"}
-      </button>
-
       {errorMessage && (
         <p className="text-sm text-red-600 dark:text-red-400">
           {errorMessage}
@@ -197,27 +120,22 @@ const GenerateContent = () => {
             alt={prompt}
             className="w-full rounded-xl border border-zinc-200 dark:border-zinc-800"
           />
+          <a
+            href={imageUrl}
+            download
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-center text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+          >
+            원본 다운로드
+          </a>
           {enhancedPrompt && (
             <p className="text-xs text-zinc-400 dark:text-zinc-500">
               AI가 보강한 프롬프트: {enhancedPrompt}
             </p>
           )}
-          {quota && (
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              오늘 무료 남은 횟수: {quota.freeRemaining}회 · 보유 크레딧:{" "}
-              {quota.balance}장
-            </p>
-          )}
         </div>
       )}
     </div>
-  );
-};
-
-export default function GeneratePage() {
-  return (
-    <Suspense fallback={null}>
-      <GenerateContent />
-    </Suspense>
   );
 }

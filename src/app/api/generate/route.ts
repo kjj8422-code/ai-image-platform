@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Replicate from "replicate";
 import { createClient } from "@supabase/supabase-js";
-import { consumeOneCredit, getQuotaStatus } from "@/lib/credits";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
@@ -94,6 +93,8 @@ const enhancePrompt = async (
   }
 };
 
+// 개인/초대 전용 도구로 전환됨 — 로그인만 확인하면 크레딧 차감 없이 자유롭게
+// 생성할 수 있다 (공개 사용자가 없으므로 무료/유료 구분이 더 이상 필요 없음).
 export async function POST(request: NextRequest) {
   try {
     if (!supabaseUrl || !supabasePublishableKey) {
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 1. 로그인 여부 확인 (비로그인 사용자의 무단 호출 차단)
+    // 로그인 여부 확인 (비로그인/미초대 사용자의 무단 호출 차단)
     const authHeader = request.headers.get("authorization");
     const accessToken = authHeader?.replace("Bearer ", "");
 
@@ -132,7 +133,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. 요청 본문에서 프롬프트 검증
+    // 요청 본문에서 프롬프트 검증
     const body = await request.json();
     const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
 
@@ -143,26 +144,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 3. 크레딧/무료 수량 확인 — 하나도 없으면 비싼 API를 호출하기 전에 먼저 차단
-    const userId = userData.user.id;
-    const quotaBefore = await getQuotaStatus(userId);
-
-    if (quotaBefore.freeRemaining <= 0 && quotaBefore.balance <= 0) {
-      return NextResponse.json(
-        {
-          error:
-            "오늘 무료 크레딧을 모두 사용하셨어요. 크레딧을 구매하시거나 내일 다시 시도해주세요.",
-        },
-        { status: 402 },
-      );
-    }
-
     const replicate = new Replicate({ auth: replicateApiToken });
 
-    // 4. 프롬프트 자동 번역·보강 (한글 등 비영어 입력도 Flux가 정확히 이해하도록)
+    // 프롬프트 자동 번역·보강 (한글 등 비영어 입력도 Flux가 정확히 이해하도록)
     const enhancedPrompt = await enhancePrompt(replicate, prompt);
 
-    // 5. Replicate(Flux 1.1 Pro)로 이미지 생성 — 품질 정책상 항상 Pro 모델만 사용
+    // Replicate(Flux 1.1 Pro)로 이미지 생성 — 품질 정책상 항상 Pro 모델만 사용
     const output = await withRetryOn429(() =>
       replicate.run("black-forest-labs/flux-1.1-pro", {
         input: { prompt: enhancedPrompt },
@@ -171,10 +158,7 @@ export async function POST(request: NextRequest) {
 
     const imageUrl = extractImageUrl(output);
 
-    // 6. 생성이 실제로 성공했을 때만 크레딧을 차감한다 (실패한 시도는 무료).
-    const quotaAfter = await consumeOneCredit(userId);
-
-    return NextResponse.json({ imageUrl, enhancedPrompt, quota: quotaAfter });
+    return NextResponse.json({ imageUrl, enhancedPrompt });
   } catch (err) {
     console.error("이미지 생성 오류:", err);
     const message =
