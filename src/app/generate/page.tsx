@@ -4,6 +4,11 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
+import {
+  DEFAULT_FORMAT_ID,
+  IMAGE_FORMATS,
+  type ImageFormatId,
+} from "@/lib/imageFormats";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 type BgRemoveState = "idle" | "processing" | "error";
@@ -11,6 +16,7 @@ type BgRemoveState = "idle" | "processing" | "error";
 export default function GeneratePage() {
   const { user, loading: userLoading } = useSupabaseUser();
   const [prompt, setPrompt] = useState<string>("");
+  const [formatId, setFormatId] = useState<ImageFormatId>(DEFAULT_FORMAT_ID);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [enhancedPrompt, setEnhancedPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -46,7 +52,7 @@ export default function GeneratePage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, format: formatId }),
       });
 
       const result = await response.json();
@@ -178,6 +184,33 @@ export default function GeneratePage() {
         onSubmit={(event) => void handleSubmit(event)}
         className="flex w-full max-w-2xl flex-col gap-3"
       >
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            어디에 쓸 이미지인가요? (규격에 맞는 비율로 생성됩니다)
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {IMAGE_FORMATS.map((format) => {
+              const isSelected = format.id === formatId;
+              return (
+                <button
+                  key={format.id}
+                  type="button"
+                  onClick={() => setFormatId(format.id)}
+                  aria-pressed={isSelected}
+                  className={`flex flex-col items-start rounded-xl border px-3 py-2 text-left transition-colors ${
+                    isSelected
+                      ? "border-black bg-black text-white dark:border-white dark:bg-white dark:text-black"
+                      : "border-zinc-300 text-zinc-700 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500"
+                  }`}
+                >
+                  <span className="text-xs font-semibold">{format.label}</span>
+                  <span className="text-[10px] opacity-70">{format.hint}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <textarea
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
