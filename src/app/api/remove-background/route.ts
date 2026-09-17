@@ -36,9 +36,11 @@ export async function POST(request: NextRequest) {
     const replicate = new Replicate({ auth: replicateApiToken });
 
     const output = await withRetryOn429(() =>
-      replicate.run("851-labs/background-remover", {
-        input: { image: imageUrl, format: "png" },
-      }),
+      // 이 모델은 "owner/name" 축약 호출을 지원하지 않아 버전을 명시해야 한다.
+      replicate.run(
+        "851-labs/background-remover:a029dff38972b5fda4ec5d75d7d1cd25aeff621d2cf4946a41055d7db66b80bc",
+        { input: { image: imageUrl, format: "png" } },
+      ),
     );
 
     const resultUrl = extractImageUrl(output);
