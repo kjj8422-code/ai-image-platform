@@ -7,17 +7,19 @@
 //
 // Flux 1.1 Pro는 픽셀 수와 무관하게 장당 정액 과금이라, 비율을 지정해도
 // 추가 비용이 발생하지 않는다.
+// hint는 "생성되는 비율"이다. 최종 출력 픽셀 수는 모델이 정하므로
+// 여기에 특정 픽셀 값을 적어 약속하지 않는다.
 export const IMAGE_FORMATS = [
   {
     id: "thumbnail",
     label: "유튜브 · SNS 썸네일",
     ratio: "16:9",
-    hint: "1280 × 720",
+    hint: "16:9 가로형",
   },
-  { id: "detail", label: "상세페이지", ratio: "4:5", hint: "860px 폭" },
-  { id: "square", label: "대표이미지", ratio: "1:1", hint: "1000 × 1000" },
-  { id: "story", label: "릴스 · 스토리", ratio: "9:16", hint: "1080 × 1920" },
-  { id: "banner", label: "광고 배너", ratio: "3:2", hint: "가로형" },
+  { id: "detail", label: "상세페이지", ratio: "4:5", hint: "4:5 세로형" },
+  { id: "square", label: "대표이미지", ratio: "1:1", hint: "1:1 정사각" },
+  { id: "story", label: "릴스 · 스토리", ratio: "9:16", hint: "9:16 세로형" },
+  { id: "banner", label: "광고 배너", ratio: "3:2", hint: "3:2 가로형" },
 ] as const;
 
 export type ImageFormat = (typeof IMAGE_FORMATS)[number];

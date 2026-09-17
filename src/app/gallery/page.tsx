@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { downloadImage } from "@/lib/downloadImage";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import type { GalleryImage } from "@/lib/gallery";
 
@@ -17,6 +18,25 @@ export default function GalleryPage() {
   const [isRemixing, setIsRemixing] = useState<boolean>(false);
   const [remixError, setRemixError] = useState<string>("");
   const [remixResult, setRemixResult] = useState<string>("");
+  const [downloadState, setDownloadState] = useState<
+    "idle" | "downloading" | "error"
+  >("idle");
+
+  // 이미지를 사용자의 기기에 저장한다. 실패하면 버튼과 메시지로 함께 알린다.
+  const handleDownload = async (imageUrl: string) => {
+    setDownloadState("downloading");
+    try {
+      await downloadImage(imageUrl);
+      setDownloadState("idle");
+    } catch (err) {
+      console.error("이미지 저장 오류:", err);
+      setDownloadState("error");
+      setRemixError(
+        err instanceof Error ? err.message : "이미지 저장에 실패했습니다.",
+      );
+    }
+  };
+
   const [remixSaveState, setRemixSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
@@ -238,6 +258,14 @@ export default function GalleryPage() {
                 >
                   편집
                 </Link>
+                <button
+                  type="button"
+                  onClick={() => void handleDownload(image.imageUrl)}
+                  disabled={downloadState === "downloading"}
+                  className="absolute bottom-1 right-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-black disabled:opacity-50"
+                >
+                  저장
+                </button>
               </div>
             );
           })}
@@ -302,15 +330,18 @@ export default function GalleryPage() {
                     ? "저장 실패, 다시 시도"
                     : "갤러리에 저장"}
             </button>
-            <a
-              href={remixResult}
-              download
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            <button
+              type="button"
+              onClick={() => void handleDownload(remixResult)}
+              disabled={downloadState === "downloading"}
+              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
             >
-              다운로드
-            </a>
+              {downloadState === "downloading"
+                ? "저장 중..."
+                : downloadState === "error"
+                  ? "저장 실패, 다시 시도"
+                  : "이미지 저장"}
+            </button>
           </div>
         </div>
       )}
