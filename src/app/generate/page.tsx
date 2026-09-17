@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
+type BgRemoveState = "idle" | "processing" | "error";
 
 export default function GeneratePage() {
   const { user, loading: userLoading } = useSupabaseUser();
@@ -15,12 +16,20 @@ export default function GeneratePage() {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
+  const [bgRemoveStates, setBgRemoveStates] = useState<
+    Record<string, BgRemoveState>
+  >({});
+  const [bgRemovedUrls, setBgRemovedUrls] = useState<Record<string, string>>(
+    {},
+  );
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setErrorMessage("");
     setIsGenerating(true);
     setSaveStates({});
+    setBgRemoveStates({});
+    setBgRemovedUrls({});
 
     try {
       const {
@@ -59,7 +68,7 @@ export default function GeneratePage() {
     }
   };
 
-  const handleSave = async (imageUrl: string) => {
+  const handleSave = async (imageUrl: string, source: "generated" | "remix" = "generated") => {
     setSaveStates((prev) => ({ ...prev, [imageUrl]: "saving" }));
 
     try {
@@ -77,7 +86,7 @@ export default function GeneratePage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ imageUrl, prompt: enhancedPrompt, source: "generated" }),
+        body: JSON.stringify({ imageUrl, prompt: enhancedPrompt, source }),
       });
 
       if (!response.ok) {
@@ -89,6 +98,41 @@ export default function GeneratePage() {
     } catch (err) {
       console.error(err);
       setSaveStates((prev) => ({ ...prev, [imageUrl]: "error" }));
+    }
+  };
+
+  const handleRemoveBackground = async (imageUrl: string) => {
+    setBgRemoveStates((prev) => ({ ...prev, [imageUrl]: "processing" }));
+
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        throw new Error("로그인이 필요합니다.");
+      }
+
+      const response = await fetch("/api/remove-background", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ imageUrl }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result?.error ?? "배경 제거에 실패했습니다.");
+      }
+
+      setBgRemovedUrls((prev) => ({ ...prev, [imageUrl]: result.imageUrl }));
+      setBgRemoveStates((prev) => ({ ...prev, [imageUrl]: "idle" }));
+    } catch (err) {
+      console.error(err);
+      setBgRemoveStates((prev) => ({ ...prev, [imageUrl]: "error" }));
     }
   };
 
@@ -164,6 +208,9 @@ export default function GeneratePage() {
           <div className="grid grid-cols-2 gap-3">
             {imageUrls.map((imageUrl) => {
               const saveState = saveStates[imageUrl] ?? "idle";
+              const bgState = bgRemoveStates[imageUrl] ?? "idle";
+              const bgRemovedUrl = bgRemovedUrls[imageUrl];
+
               return (
                 <div key={imageUrl} className="flex flex-col gap-2">
                   {/* eslint-disable-next-line @next/next/no-img-element -- 외부 도메인 이미지라 next/image 설정 전까지 img 태그 사용 */}
@@ -172,7 +219,7 @@ export default function GeneratePage() {
                     alt={prompt}
                     className="w-full rounded-xl border border-zinc-200 dark:border-zinc-800"
                   />
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => void handleSave(imageUrl)}
@@ -196,7 +243,62 @@ export default function GeneratePage() {
                     >
                       다운로드
                     </a>
+                    <button
+                      type="button"
+                      onClick={() => void handleRemoveBackground(imageUrl)}
+                      disabled={bgState === "processing"}
+                      className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                    >
+                      {bgState === "processing"
+                        ? "배경 제거 중..."
+                        : bgState === "error"
+                          ? "배경 제거 실패, 다시 시도"
+                          : "누끼컷(배경 제거)"}
+                    </button>
                   </div>
+
+                  {bgRemovedUrl && (
+                    <div
+                      className="flex flex-col gap-2 rounded-xl border border-dashed border-zinc-300 p-2 dark:border-zinc-700"
+                      style={{
+                        backgroundImage:
+                          "repeating-conic-gradient(#e5e5e5 0% 25%, transparent 0% 50%) 50% / 16px 16px",
+                      }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element -- 외부 도메인 이미지라 next/image 설정 전까지 img 태그 사용 */}
+                      <img
+                        src={bgRemovedUrl}
+                        alt="배경 제거된 이미지"
+                        className="w-full rounded-lg"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleSave(bgRemovedUrl)}
+                          disabled={
+                            saveStates[bgRemovedUrl] === "saving" ||
+                            saveStates[bgRemovedUrl] === "saved"
+                          }
+                          className="flex-1 rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                        >
+                          {saveStates[bgRemovedUrl] === "saving"
+                            ? "저장 중..."
+                            : saveStates[bgRemovedUrl] === "saved"
+                              ? "✓ 저장됨"
+                              : "갤러리에 저장"}
+                        </button>
+                        <a
+                          href={bgRemovedUrl}
+                          download
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                        >
+                          다운로드
+                        </a>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
