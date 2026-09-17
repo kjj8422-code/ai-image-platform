@@ -141,12 +141,13 @@ export async function POST(request: NextRequest) {
     // 프롬프트 자동 번역·보강 (한글 등 비영어 입력도 Flux가 정확히 이해하도록)
     const enhancedPrompt = await enhancePrompt(replicate, prompt);
 
-    // Flux 1.1 Pro로 이미지 여러 장을 동시에 생성 — 품질 정책상 항상 Pro 모델만 사용
-    const imageUrls = await Promise.all(
-      Array.from({ length: IMAGES_PER_REQUEST }, () =>
-        generateOneImage(replicate, enhancedPrompt),
-      ),
-    );
+    // Flux 1.1 Pro로 이미지 여러 장을 생성 — 품질 정책상 항상 Pro 모델만 사용.
+    // Replicate의 "한 번에 1개 요청" 속도 제한 때문에 동시(병렬) 호출이 아니라
+    // 하나씩 순차적으로 생성한다.
+    const imageUrls: string[] = [];
+    for (let i = 0; i < IMAGES_PER_REQUEST; i += 1) {
+      imageUrls.push(await generateOneImage(replicate, enhancedPrompt));
+    }
 
     return NextResponse.json({ imageUrls, enhancedPrompt });
   } catch (err) {
