@@ -1,0 +1,53 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="canvas" content="1280x720">
+<title>유튜브 썸네일 목업</title><style>
+/* 유튜브 썸네일 규격(1280x720) 디자인 샘플.
+   생성한 인물 사진을 그대로 쓰되, 손·표정이 가려지지 않게 카피를 하단에 둔다. */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1280px;height:720px;overflow:hidden}
+body{font-family:'Noto Sans KR',sans-serif;-webkit-font-smoothing:antialiased}
+.t{position:relative;width:1280px;height:720px;overflow:hidden;background:#0C0E16}
+
+.ph{position:absolute;inset:0;width:1280px;height:720px;
+  object-fit:cover;object-position:center 30%;z-index:0}
+/* 하단 카피가 읽히도록 아래쪽만 덮는다 — 인물과 손은 그대로 보인다 */
+.scrim{position:absolute;inset:0;z-index:1;
+  background:linear-gradient(180deg,
+    rgba(8,10,18,.34) 0%, rgba(8,10,18,0) 26%,
+    rgba(8,10,18,.55) 56%, rgba(8,10,18,.94) 82%, rgba(8,10,18,.99) 100%)}
+
+.wrap{position:absolute;left:58px;right:58px;bottom:44px;z-index:2}
+.kicker{display:inline-flex;align-items:center;gap:11px;
+  background:rgba(255,92,43,.94);padding:9px 19px;border-radius:999px;margin-bottom:18px;
+  font-size:26px;font-weight:800;color:#fff;letter-spacing:-.035em;
+  box-shadow:0 8px 22px rgba(255,92,43,.42)}
+.kicker i{width:9px;height:9px;border-radius:50%;background:#FFE08A;font-style:normal}
+
+.big{font-size:88px;font-weight:900;line-height:1.1;letter-spacing:-.055em;color:#fff;
+  text-shadow:0 6px 26px rgba(0,0,0,.8)}
+.hl{position:relative;display:inline-block;padding:0 8px}
+.hl>span{position:relative;z-index:1;color:#12141C}
+.hl::before{content:"";position:absolute;left:0;right:0;top:.02em;bottom:.05em;
+  background:#FFD54A;border-radius:9px;transform:rotate(-1deg)}
+
+/* 우상단 배지 */
+.badge{position:absolute;right:52px;top:46px;z-index:2;
+  width:142px;height:142px;border-radius:50%;background:#fff;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  box-shadow:0 16px 42px rgba(0,0,0,.52);transform:rotate(-8deg)}
+.badge .b1{font-size:22px;font-weight:800;color:#8A3A10;letter-spacing:-.04em;line-height:1}
+.badge .b2{font-size:46px;font-weight:900;color:#E03A0C;letter-spacing:-.06em;line-height:1.04}
+</style></head><body>
+<div class="t">
+  <img class="ph" src="photos/person-1.webp" alt="">
+  <div class="scrim"></div>
+
+  <div class="badge"><div class="b1">점검</div><div class="b2">5분</div></div>
+
+  <div class="wrap">
+    <div class="kicker"><i></i>스마트스토어 초보 필수</div>
+    <div class="big">이 설정 안 하면</div>
+    <div class="big"><span class="hl"><span>광고비 다 날립니다</span></span></div>
+  </div>
+</div>
+</body></html>
