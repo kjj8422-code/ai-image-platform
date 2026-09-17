@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import Replicate from "replicate";
-import { createClient } from "@supabase/supabase-js";
+import { requireUser } from "@/lib/requireUser";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 const replicateApiToken = process.env.REPLICATE_API_TOKEN;
 
-// 최대 실행 시간을 넉넉히 잡아둔다 (번역 호출 + 이미지 생성 호출 +
+// 프롬프트 하나당 몇 장을 동시에 생성할지 (요청 사양: 3~4장)
+const IMAGES_PER_REQUEST = 4;
+
+// 최대 실행 시간을 넉넉히 잡아둔다 (번역 호출 + 이미지 4장 동시 생성 +
 // 속도 제한에 걸렸을 때의 재시도 대기 시간까지 합치면 기본 10초로는 부족할 수 있음).
 export const maxDuration = 60;
 
 // Replicate는 계정당 "한 번에 1개 요청, 그 다음은 몇 초 대기" 식의 순간 속도 제한이
-// 있다. 번역(Claude) → 생성(Flux)으로 연속 호출하면 두 번째 호출이 이 제한에 걸릴
-// 수 있어, 429 응답을 받으면 안내된 대기 시간만큼 기다렸다가 자동으로 재시도한다.
+// 있다. 429 응답을 받으면 안내된 대기 시간만큼 기다렸다가 자동으로 재시도한다.
 const withRetryOn429 = async <T,>(
   fn: () => Promise<T>,
   retries = 2,
@@ -93,17 +93,27 @@ const enhancePrompt = async (
   }
 };
 
-// 개인/초대 전용 도구로 전환됨 — 로그인만 확인하면 크레딧 차감 없이 자유롭게
-// 생성할 수 있다 (공개 사용자가 없으므로 무료/유료 구분이 더 이상 필요 없음).
+// Flux 1.1 Pro로 이미지 1장을 생성한다. 여러 장을 동시에 만들 때 매번 같은
+// 결과가 나오지 않도록 매 호출마다 랜덤 시드를 지정한다.
+const generateOneImage = async (
+  replicate: Replicate,
+  prompt: string,
+): Promise<string> => {
+  const output = await withRetryOn429(() =>
+    replicate.run("black-forest-labs/flux-1.1-pro", {
+      input: {
+        prompt,
+        seed: Math.floor(Math.random() * 1_000_000),
+      },
+    }),
+  );
+
+  return extractImageUrl(output);
+};
+
+// 개인/초대 전용 도구 — 로그인만 확인하면 크레딧 차감 없이 자유롭게 생성한다.
 export async function POST(request: NextRequest) {
   try {
-    if (!supabaseUrl || !supabasePublishableKey) {
-      return NextResponse.json(
-        { error: "서버 설정 오류: Supabase 환경변수가 누락되었습니다." },
-        { status: 500 },
-      );
-    }
-
     if (!replicateApiToken) {
       return NextResponse.json(
         { error: "서버 설정 오류: Replicate 토큰이 누락되었습니다." },
@@ -111,29 +121,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 로그인 여부 확인 (비로그인/미초대 사용자의 무단 호출 차단)
-    const authHeader = request.headers.get("authorization");
-    const accessToken = authHeader?.replace("Bearer ", "");
-
-    if (!accessToken) {
-      return NextResponse.json(
-        { error: "로그인이 필요합니다." },
-        { status: 401 },
-      );
+    const auth = await requireUser(request);
+    if ("error" in auth) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
-    const supabase = createClient(supabaseUrl, supabasePublishableKey);
-    const { data: userData, error: userError } =
-      await supabase.auth.getUser(accessToken);
-
-    if (userError || !userData.user) {
-      return NextResponse.json(
-        { error: "로그인이 필요합니다." },
-        { status: 401 },
-      );
-    }
-
-    // 요청 본문에서 프롬프트 검증
     const body = await request.json();
     const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
 
@@ -149,16 +141,14 @@ export async function POST(request: NextRequest) {
     // 프롬프트 자동 번역·보강 (한글 등 비영어 입력도 Flux가 정확히 이해하도록)
     const enhancedPrompt = await enhancePrompt(replicate, prompt);
 
-    // Replicate(Flux 1.1 Pro)로 이미지 생성 — 품질 정책상 항상 Pro 모델만 사용
-    const output = await withRetryOn429(() =>
-      replicate.run("black-forest-labs/flux-1.1-pro", {
-        input: { prompt: enhancedPrompt },
-      }),
+    // Flux 1.1 Pro로 이미지 여러 장을 동시에 생성 — 품질 정책상 항상 Pro 모델만 사용
+    const imageUrls = await Promise.all(
+      Array.from({ length: IMAGES_PER_REQUEST }, () =>
+        generateOneImage(replicate, enhancedPrompt),
+      ),
     );
 
-    const imageUrl = extractImageUrl(output);
-
-    return NextResponse.json({ imageUrl, enhancedPrompt });
+    return NextResponse.json({ imageUrls, enhancedPrompt });
   } catch (err) {
     console.error("이미지 생성 오류:", err);
     const message =
