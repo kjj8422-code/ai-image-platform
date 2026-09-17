@@ -1,0 +1,111 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="canvas" content="860x1075">
+<title>상세페이지 목업</title><style>
+/* 스마트스토어 상세페이지 규격(폭 860px) 상단부 디자인 샘플.
+   후킹 → 근거 → 스펙 → 구매 순서를 그대로 보여준다. */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:860px;height:1075px;overflow:hidden}
+body{font-family:'Noto Sans KR',sans-serif;-webkit-font-smoothing:antialiased;
+  background:#fff;color:#14161B}
+.d{position:relative;width:860px;height:1075px;overflow:hidden;background:#fff}
+
+/* 1. 후킹 영역 */
+.hero{position:relative;height:452px;overflow:hidden;
+  background:linear-gradient(160deg,#101623 0%,#18202F 52%,#0D1118 100%);
+  padding:44px 48px;display:flex;flex-direction:column}
+.hero .aura{position:absolute;inset:0;
+  background:radial-gradient(360px 300px at 84% 26%, rgba(91,140,255,.44), transparent 68%),
+             radial-gradient(300px 260px at 12% 96%, rgba(61,220,132,.24), transparent 70%)}
+.hero .inner{position:relative;z-index:1}
+.brand{font-size:13px;font-weight:800;letter-spacing:.24em;color:#8FA3C8;margin-bottom:20px}
+.hh{font-size:47px;font-weight:900;line-height:1.2;letter-spacing:-.045em;color:#fff}
+.hh em{font-style:normal;color:#7FE8A8}
+.hsub{margin-top:16px;font-size:18px;font-weight:500;line-height:1.6;
+  color:rgba(255,255,255,.72);letter-spacing:-.022em}
+/* 제품이 놓이는 자리 — 스포트라이트 + 받침 그림자로 '연출된 컷' 느낌 */
+/* 배경을 제거한 실제 제품컷. 투명 PNG라 히어로 배경 위에 그대로 얹힌다. */
+.shot{position:absolute;right:26px;top:96px;width:334px;height:334px;z-index:2}
+.shot .glow{position:absolute;left:8px;top:26px;width:318px;height:318px;border-radius:50%;
+  background:radial-gradient(circle,rgba(150,205,255,.30),transparent 68%)}
+.shot .ph{position:absolute;inset:0;width:334px;height:334px;object-fit:contain;
+  filter:drop-shadow(0 26px 44px rgba(0,0,0,.6))}
+
+/* 2. 근거 3가지 */
+.why{padding:36px 48px 26px}
+.wlab{font-size:12.5px;font-weight:900;letter-spacing:.2em;color:#FF5C2B;margin-bottom:8px}
+.wt{font-size:27px;font-weight:900;letter-spacing:-.04em;margin-bottom:22px}
+.brow{display:flex;gap:12px}
+.b{flex:1;background:#F4F6FA;border:1px solid #E3E8F0;border-radius:15px;padding:17px 15px}
+.bic{width:38px;height:38px;border-radius:11px;margin-bottom:12px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:19px;font-weight:900;color:#fff}
+.b1 .bic{background:linear-gradient(135deg,#FF5C2B,#FF9A3C)}
+.b2 .bic{background:linear-gradient(135deg,#5B8CFF,#7FB0FF)}
+.b3 .bic{background:linear-gradient(135deg,#1FBF6B,#5BE0A0)}
+.bt{font-size:16.5px;font-weight:800;letter-spacing:-.032em;margin-bottom:5px}
+.bd{font-size:13.5px;font-weight:500;line-height:1.5;color:#6A7383;letter-spacing:-.018em}
+
+/* 3. 스펙 + 구매 */
+.spec{margin:0 48px;border-top:2px solid #14161B;padding-top:2px}
+.sr{display:flex;align-items:center;padding:11px 2px;border-bottom:1px solid #E7EBF1;
+  font-size:14.5px;letter-spacing:-.02em}
+.sr .k{width:118px;flex-shrink:0;font-weight:700;color:#8A93A3}
+.sr .v{font-weight:700;color:#14161B}
+.buy{margin:22px 48px 0;display:flex;align-items:center;gap:14px}
+.cta{flex:1;height:60px;border-radius:14px;
+  background:linear-gradient(135deg,#FF5C2B,#FF8A3C);
+  display:flex;align-items:center;justify-content:center;
+  font-size:20px;font-weight:900;color:#fff;letter-spacing:-.035em;
+  box-shadow:0 12px 26px rgba(255,92,43,.32)}
+.pricebox{text-align:right;flex-shrink:0}
+.was{font-size:14px;font-weight:600;color:#A6AEBC;text-decoration:line-through}
+.now{font-size:27px;font-weight:900;letter-spacing:-.045em}
+.now b{color:#FF3B1F;font-weight:900}
+</style></head><body>
+<div class="d">
+
+  <div class="hero">
+    <div class="aura"></div>
+    <div class="inner">
+      <div class="brand">DAILY CLEAN</div>
+      <div class="hh">설거지 시간,<br><em>절반</em>으로 줄었습니다</div>
+      <div class="hsub">손에 힘 주지 않아도 됩니다.<br>기름때는 물만 닿으면 바로 풀립니다.</div>
+    </div>
+    <div class="shot">
+      <div class="glow"></div>
+      <img class="ph" src="photos/bottle-cut-1.png" alt="">
+    </div>
+  </div>
+
+  <div class="why">
+    <div class="wlab">WHY THIS</div>
+    <div class="wt">써보면 바로 아는 3가지</div>
+    <div class="brow">
+      <div class="b b1"><div class="bic">1</div>
+        <div class="bt">기름이 빨리 풀린다</div>
+        <div class="bd">농축 성분이 기름막을 먼저 끊어줍니다.</div></div>
+      <div class="b b2"><div class="bic">2</div>
+        <div class="bt">헹굼이 짧다</div>
+        <div class="bd">거품이 적어 물을 덜 쓰게 됩니다.</div></div>
+      <div class="b b3"><div class="bic">3</div>
+        <div class="bt">손이 덜 건조하다</div>
+        <div class="bd">약산성이라 오래 써도 덜 당깁니다.</div></div>
+    </div>
+  </div>
+
+  <div class="spec">
+    <div class="sr"><span class="k">용량</span><span class="v">500ml (펌프형)</span></div>
+    <div class="sr"><span class="k">향</span><span class="v">무향 · 레몬 2종</span></div>
+    <div class="sr"><span class="k">사용처</span><span class="v">식기 · 과채류 · 조리도구</span></div>
+  </div>
+
+  <div class="buy">
+    <div class="cta">지금 구매하기</div>
+    <div class="pricebox">
+      <div class="was">19,800원</div>
+      <div class="now"><b>12,900</b>원</div>
+    </div>
+  </div>
+
+</div>
+</body></html>

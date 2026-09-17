@@ -1,0 +1,54 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8">
+<meta name="canvas" content="1200x400">
+<title>광고 배너 목업</title><style>
+/* 디스플레이 광고 배너 규격 샘플(1200x400). 좌측 카피 + 우측 CTA 구조. */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1200px;height:400px;overflow:hidden}
+body{font-family:'Noto Sans KR',sans-serif;-webkit-font-smoothing:antialiased}
+.b{position:relative;width:1200px;height:400px;overflow:hidden;
+  background:linear-gradient(115deg,#2A0E06 0%,#40140A 44%,#16101E 100%);
+  display:flex;align-items:center;padding:0 60px;gap:40px}
+/* 생성한 주방 컷을 배경으로 쓰고, 왼쪽 카피가 읽히도록 그라디언트로 덮는다 */
+.ph{position:absolute;inset:0;width:1200px;height:400px;
+  object-fit:cover;object-position:center 62%;z-index:0}
+.aura{position:absolute;inset:0;z-index:1;
+  background:linear-gradient(95deg,
+    rgba(28,14,8,.95) 0%, rgba(28,14,8,.88) 30%,
+    rgba(28,14,8,.52) 52%, rgba(28,14,8,.12) 74%, rgba(28,14,8,0) 92%)}
+.left{position:relative;z-index:1;flex:1}
+.tagline{display:inline-flex;align-items:center;gap:9px;
+  background:rgba(255,255,255,.14);border:1.5px solid rgba(255,255,255,.3);
+  padding:8px 16px;border-radius:999px;margin-bottom:18px;
+  font-size:19px;font-weight:800;color:#fff;letter-spacing:-.03em}
+.tagline i{width:8px;height:8px;border-radius:50%;background:#FFC24A;font-style:normal}
+.h{font-size:62px;font-weight:900;line-height:1.08;letter-spacing:-.05em;color:#fff}
+.h em{font-style:normal;color:#FFD54A}
+.s{margin-top:14px;font-size:20px;font-weight:600;letter-spacing:-.028em;
+  color:rgba(255,255,255,.76)}
+.right{position:relative;z-index:1;flex-shrink:0;
+  display:flex;flex-direction:column;align-items:center;gap:16px}
+.off{width:172px;height:172px;border-radius:50%;background:#fff;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  box-shadow:0 18px 46px rgba(0,0,0,.42);transform:rotate(-7deg)}
+.off .o1{font-size:52px;font-weight:900;color:#E03A0C;letter-spacing:-.06em;line-height:1}
+.off .o2{font-size:19px;font-weight:800;color:#8A3A10;letter-spacing:-.03em;margin-top:2px}
+.cta{height:56px;padding:0 30px;border-radius:14px;
+  background:linear-gradient(135deg,#FF5C2B,#FF9A3C);
+  display:flex;align-items:center;justify-content:center;
+  font-size:21px;font-weight:900;color:#fff;letter-spacing:-.035em;
+  box-shadow:0 12px 28px rgba(255,92,43,.44)}
+</style></head><body>
+<div class="b">
+  <img class="ph" src="photos/kitchen-1.webp" alt="">
+  <div class="aura"></div>
+  <div class="left">
+    <div class="tagline"><i></i>첫 구매 고객 한정</div>
+    <div class="h">오늘 시작하면<br><em>20% 더 싸게</em></div>
+    <div class="s">쿠폰은 결제창에서 자동 적용됩니다</div>
+  </div>
+  <div class="right">
+    <div class="off"><div class="o1">20%</div><div class="o2">첫구매 쿠폰</div></div>
+    <div class="cta">쿠폰 받기</div>
+  </div>
+</div>
+</body></html>

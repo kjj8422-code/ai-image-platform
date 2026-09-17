@@ -1,0 +1,129 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css"><style>
+.pad{padding:52px 64px}
+.head{flex-shrink:0;margin:26px 0 24px}
+.h2{font-size:39px;margin-bottom:11px}
+.head .sub{font-size:17px}
+
+.plans{flex:1;display:flex;gap:18px;align-items:center}
+.p{flex:1;display:flex;flex-direction:column;position:relative;
+  background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02));
+  border:1px solid var(--line);border-radius:20px;padding:24px 26px 22px}
+.p.hot{background:linear-gradient(180deg,rgba(255,92,43,.14),rgba(255,92,43,.04));
+  border:1.5px solid rgba(255,92,43,.5);box-shadow:0 0 50px rgba(255,92,43,.15)}
+.ribbon{position:absolute;top:-11px;left:24px;font-size:11.5px;font-weight:900;
+  letter-spacing:.06em;color:#0A0C12;background:linear-gradient(135deg,var(--acc),var(--acc2));
+  padding:5px 12px;border-radius:999px}
+
+.ptop{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:16px}
+.pname{font-size:13px;font-weight:900;letter-spacing:.16em;color:var(--fg2);margin-bottom:8px}
+.p.hot .pname{color:var(--acc2)}
+.pfor{font-size:15.5px;font-weight:700;letter-spacing:-.026em;color:#E8EBF2;line-height:1.45}
+.pricewrap{text-align:right;flex-shrink:0}
+.price{display:flex;align-items:baseline;gap:3px;justify-content:flex-end}
+.price .num{font-size:40px;font-weight:900;letter-spacing:-.048em}
+.price .won{font-size:17px;font-weight:800;color:var(--fg2)}
+.pdays{font-size:12.5px;font-weight:700;color:var(--acc2);margin-top:3px}
+
+.rows{display:flex;flex-direction:column}
+.r{display:flex;align-items:center;gap:10px;padding:11px 0;
+  border-top:1px solid rgba(255,255,255,.075);font-size:14.5px;letter-spacing:-.022em}
+.r .k{color:var(--fg3);font-weight:600;width:132px;flex-shrink:0}
+.r .v{color:#EDF0F5;font-weight:700}
+.r .v.off{color:var(--fg3);font-weight:600}
+.r .v b{color:var(--acc2);font-weight:900}
+
+.pfoot{margin-top:auto;padding-top:16px;font-size:13px;font-weight:600;
+  color:var(--fg3);letter-spacing:-.018em;line-height:1.5}
+
+/* 전 패키지 공통 포함 사항 — 차등이 아닌 기본값을 따로 보여준다 */
+.common{flex-shrink:0;margin-top:18px;display:flex;align-items:center;gap:14px;
+  background:linear-gradient(90deg,rgba(91,140,255,.12),rgba(91,140,255,.04));
+  border:1px solid rgba(91,140,255,.26);border-radius:16px;padding:15px 20px}
+.clab{font-size:12px;font-weight:900;letter-spacing:.12em;color:var(--cool);flex-shrink:0}
+.citems{flex:1;display:flex;gap:9px;flex-wrap:wrap}
+.ci{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:700;
+  letter-spacing:-.022em;color:#E3E7EE;
+  background:rgba(255,255,255,.05);border:1px solid var(--line);
+  padding:8px 12px;border-radius:10px}
+.ci i{width:15px;height:15px;border-radius:5px;flex-shrink:0;font-style:normal;
+  background:rgba(91,140,255,.2);border:1px solid rgba(91,140,255,.44);
+  color:#9CBBFF;font-size:9.5px;font-weight:900;
+  display:flex;align-items:center;justify-content:center;line-height:1}
+</style></head><body>
+<div class="stage"><div class="grid"></div><div class="pad">
+
+  <div class="brandbar">
+    <div class="mark">A</div>
+    <div class="brandtxt">AI VISUAL STUDIO</div>
+    <div class="spacer"></div>
+    <div class="badge">패키지 안내 — 썸네일 기준</div>
+  </div>
+
+  <div class="head">
+    <div class="eyebrow">두 가지 중에 고르시면 됩니다</div>
+    <div class="h2">한 장만 필요하신가요, <span class="mk">채널 전체</span>인가요</div>
+    <div class="sub">시안은 어느 쪽이든 4종 드립니다. 상세페이지 · 배너는 분량에 따라 별도 견적입니다.</div>
+  </div>
+
+  <div class="plans">
+    <div class="p">
+      <div class="ptop">
+        <div>
+          <div class="pname">STANDARD</div>
+          <div class="pfor">한 자리에 쓸<br>한 장이 필요할 때</div>
+        </div>
+        <div class="pricewrap">
+          <div class="price"><span class="num mono">45,000</span><span class="won">원</span></div>
+          <div class="pdays">작업 기간 2일</div>
+        </div>
+      </div>
+      <div class="rows">
+        <div class="r"><span class="k">최종 납품</span><span class="v">1종</span></div>
+        <div class="r"><span class="k">수정 횟수</span><span class="v">2회</span></div>
+        <div class="r"><span class="k">규격 변형</span><span class="v">1종</span></div>
+        <div class="r"><span class="k">부분 재생성 보정</span><span class="v off">해당 없음</span></div>
+        <div class="r"><span class="k">원본 파일 (PSD)</span><span class="v off">해당 없음</span></div>
+      </div>
+      <div class="pfoot">시안 4종 중 1종을 고르시면 그걸 끝까지 다듬어 드립니다.</div>
+    </div>
+
+    <div class="p hot">
+      <div class="ribbon">채널 전체에 깔 때</div>
+      <div class="ptop">
+        <div>
+          <div class="pname">PREMIUM</div>
+          <div class="pfor">여러 규격에<br>한 번에 깔아야 할 때</div>
+        </div>
+        <div class="pricewrap">
+          <div class="price"><span class="num mono">120,000</span><span class="won">원</span></div>
+          <div class="pdays">작업 기간 3일</div>
+        </div>
+      </div>
+      <div class="rows">
+        <div class="r"><span class="k">최종 납품</span><span class="v"><b>3종 세트</b></span></div>
+        <div class="r"><span class="k">수정 횟수</span><span class="v"><b>무제한</b></span></div>
+        <div class="r"><span class="k">규격 변형</span><span class="v"><b>3종</b></span></div>
+        <div class="r"><span class="k">부분 재생성 보정</span><span class="v"><b>포함</b></span></div>
+        <div class="r"><span class="k">원본 파일 (PSD)</span><span class="v"><b>포함</b></span></div>
+      </div>
+      <div class="pfoot">무제한 수정은 작업 기간(3일) 내에 적용됩니다.</div>
+    </div>
+  </div>
+
+  <div class="common">
+    <div class="clab">두 패키지 공통</div>
+    <div class="citems">
+      <div class="ci"><i>✓</i>시안 4종 제공</div>
+      <div class="ci"><i>✓</i>규격별 정확한 비율로 생성</div>
+      <div class="ci"><i>✓</i>12항목 전수 검수</div>
+      <div class="ci"><i>✓</i>상업적 이용 가능</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>대량 · 정기 작업은 단가를 따로 맞춰드립니다</span>
+    <span class="spacer"></span>
+    <span style="color:var(--acc2)">상담은 무료 · 견적 후 결정하세요</span>
+  </div>
+
+</div></div></body></html>

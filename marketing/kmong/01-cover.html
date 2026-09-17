@@ -1,0 +1,64 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css"><style>
+.pad{padding:56px 66px}
+/* 높이 배분을 명시해 하단 문구가 캔버스 밖으로 밀려나지 않게 한다 */
+.body{flex:1;display:flex;align-items:center;gap:36px}
+.left{width:560px;flex-shrink:0}
+.h1{font-size:61px;margin-bottom:26px}
+.sub{font-size:19px;margin-bottom:32px}
+.chip{font-size:14.5px;padding:11px 15px}
+
+/* 오른쪽: 납품 규격을 그대로 형상화한 추상 프레임 3종 (432px 폭 안에 배치) */
+.right{width:432px;flex-shrink:0;position:relative;height:600px}
+.fr{position:absolute;border-radius:15px;overflow:hidden;
+  border:1px solid var(--line2);box-shadow:0 26px 60px rgba(0,0,0,.6);background:#0B0E15}
+.fr iframe{border:0;display:block;transform-origin:0 0}
+
+/* 목업 원본 크기를 그대로 두고 배율만 줄여 끼운다 — 규격 비율이 정확히 유지된다 */
+.f1{width:400px;height:225px;left:14px;top:46px;transform:rotate(-3.4deg)}
+.f1 iframe{width:1280px;height:720px;transform:scale(.3125)}
+
+.f2{width:194px;height:243px;left:22px;top:312px;transform:rotate(2.6deg)}
+.f2 iframe{width:860px;height:1075px;transform:scale(.22558)}
+
+.f3{width:222px;height:74px;left:212px;top:452px;transform:rotate(-1.8deg)}
+.f3 iframe{width:1200px;height:400px;transform:scale(.185)}
+</style></head><body>
+<div class="stage"><div class="grid"></div><div class="pad">
+
+  <div class="brandbar">
+    <div class="mark">A</div>
+    <div class="brandtxt">AI VISUAL STUDIO</div>
+    <div class="spacer"></div>
+    <div class="badge">썸네일 · 상세페이지 · 광고 배너</div>
+  </div>
+
+  <div class="body">
+    <div class="left">
+      <div class="eyebrow">클릭을 만드는 비주얼 제작</div>
+      <div class="h1">AI로 만들고,<br><span class="mk">사람 손으로</span> 끝냅니다</div>
+      <div class="sub">
+        템플릿을 쓰지 않습니다. 의뢰하신 구도와 컨셉에 맞춰<br>
+        비주얼을 새로 생성하고, AI가 취약한 부위는<br>
+        디자이너가 직접 보정해 납품합니다.
+      </div>
+      <div class="chiprow">
+        <div class="chip"><span class="dot"></span>규격별 정확한 비율</div>
+        <div class="chip"><span class="dot"></span>시안 4종 제공</div>
+        <div class="chip"><span class="dot"></span>12항목 전수 검수</div>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="fr f1" data-clip><iframe src="mock-thumb.html" scrolling="no"></iframe></div>
+      <div class="fr f2" data-clip><iframe src="mock-detail.html" scrolling="no"></iframe></div>
+      <div class="fr f3" data-clip><iframe src="mock-banner.html" scrolling="no"></iframe></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>원고 · 레퍼런스만 주시면 나머지는 저희가 설계합니다</span>
+    <span class="spacer"></span>
+    <span style="color:var(--acc2)">상담 후 작업 시작 · 수정 반영 포함</span>
+  </div>
+
+</div></div></body></html>
