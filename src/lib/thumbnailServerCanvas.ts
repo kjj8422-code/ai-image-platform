@@ -21,8 +21,12 @@ export const SAFE_ZONE = {
 };
 
 const SIDE_MARGIN = Math.round(THUMBNAIL_WIDTH * SAFE_ZONE.rightRatio);
-// 요구사항: 텍스트를 상단~중앙(Y축 450px 부근)에 배치.
-const TITLE_TOP_Y = 450;
+// 처음엔 y=450(상단~중앙)에 두었는데, 실제 생성된 사진들을 보니 그 위치가
+// 인물의 팔/소품과 자주 겹쳐 어색했다(사용자가 실제 결과로 지적). 제목을 화면
+// 맨 위쪽으로 올리고, 배경 생성 프롬프트 쪽에서 이 영역을 비워두도록 지시하는
+// 방식으로 바꿨다 — 실제 유튜브 쇼츠 썸네일들도 문구는 상단, 인물/소품은
+// 중앙~하단에 두는 구도가 많다.
+const TITLE_TOP_Y = 170;
 const SAFE_BOTTOM_Y = Math.round(
   THUMBNAIL_HEIGHT * (1 - SAFE_ZONE.bottomRatio),
 );
@@ -83,8 +87,8 @@ const coverDraw = (ctx: SKRSContext2D, img: Image): void => {
 
 const drawTopGradient = (
   ctx: SKRSContext2D,
-  heightRatio = 0.55,
-  maxAlpha = 0.8,
+  heightRatio = 0.4,
+  maxAlpha = 0.85,
 ): void => {
   const gradientHeight = THUMBNAIL_HEIGHT * heightRatio;
   const gradient = ctx.createLinearGradient(0, 0, 0, gradientHeight);

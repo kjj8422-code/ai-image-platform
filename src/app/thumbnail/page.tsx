@@ -12,6 +12,8 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 
 // 타이핑 중 매 글자마다 서버에 합성 요청을 보내지 않도록 살짝 지연시킨다.
 const COMPOSE_DEBOUNCE_MS = 500;
+// 반복 생성이 잦은 화면이라 비용·대기시간을 줄이려고 4장 대신 2장만 생성한다.
+const BACKGROUND_CANDIDATE_COUNT = 2;
 
 const blobToDataUrl = (blob: Blob): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -101,7 +103,11 @@ export default function ThumbnailPage() {
       const response = await authedFetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: backgroundPrompt, format: "story" }),
+        body: JSON.stringify({
+          prompt: backgroundPrompt,
+          format: "story",
+          count: BACKGROUND_CANDIDATE_COUNT,
+        }),
       });
       const result = await response.json();
       if (!response.ok) {
@@ -322,7 +328,8 @@ export default function ThumbnailPage() {
       {/* 2단계: 배경 생성 */}
       <section className="flex w-full max-w-2xl flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
         <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          2. 9:16 배경 이미지 4장을 생성해서 마음에 드는 걸 골라주세요
+          2. 9:16 배경 이미지 {BACKGROUND_CANDIDATE_COUNT}장을 생성해서 마음에 드는 걸
+          골라주세요
         </p>
         <button
           type="button"
@@ -331,8 +338,8 @@ export default function ThumbnailPage() {
           className="self-start rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
         >
           {backgroundState === "loading"
-            ? "배경 4장 생성 중... (최대 1분)"
-            : "9:16 배경 이미지 4장 생성하기"}
+            ? `배경 ${BACKGROUND_CANDIDATE_COUNT}장 생성 중... (최대 1분)`
+            : `9:16 배경 이미지 ${BACKGROUND_CANDIDATE_COUNT}장 생성하기`}
         </button>
         {backgroundError && (
           <p className="text-sm text-red-600 dark:text-red-400">
@@ -341,7 +348,7 @@ export default function ThumbnailPage() {
         )}
 
         {candidates.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3">
             {candidates.map((url) => (
               <button
                 key={url}

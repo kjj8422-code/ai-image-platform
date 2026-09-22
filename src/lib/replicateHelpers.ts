@@ -114,7 +114,11 @@ Given a short script or keyword (possibly in Korean), produce two things:
    - "백록담에서 등산 오른 여성이 구름을 비닐봉지에 담는 모습" -> "구름 포장 실화냐ㅋㅋㅋ"
    - "신입사원이 첫 출근날 겪은 황당한 실수담" -> "첫 출근에 이게 무슨 일ㄷㄷ"
 
-2. "backgroundPrompt": a single vivid, detailed ENGLISH prompt describing a photographic background scene for this thumbnail (no on-image text, no typography, no captions). Include lighting, composition and mood, and explicitly require that the main subject/face be composed in the upper two-thirds of the frame, roughly centered-left, keeping the bottom quarter and far-right edge of the frame relatively open and uncluttered. If the scene includes any person, ALWAYS explicitly describe that person as a young Korean woman (e.g. "a Korean woman in her 20s") — never leave ethnicity unspecified or default to any other nationality.
+2. "backgroundPrompt": a single vivid, detailed ENGLISH prompt describing a photographic background scene for this thumbnail (no on-image text, no typography, no captions).
+   - First, identify the single most concrete, literal visual detail implied by the input — usually a specific object visibly undergoing the described action. That literal detail MUST be the unmistakable focal point of the image. If the input describes something being captured/held/filled/trapped/glowing inside an object (e.g. "sunset captured in a bottle"), the object itself must visibly show that content glowing/filling/reflecting inside it — do not settle for a generic gesture like merely holding the object up near the phenomenon; the effect must be visibly happening inside or on the object itself.
+   - Composition: keep the TOP ~25% of the frame simple and visually calm (plain sky, soft gradient, negative space, no busy detail or raised limbs) because bold title text will be overlaid there. Place the main subject/action in the middle band of the frame (roughly 25%-75% from the top). Keep the bottom 25% and the far-right 15% of the frame relatively open/uncluttered (platform UI covers those areas).
+   - Include lighting, composition and mood as professional photography detail (golden hour, depth of field, color grading, etc).
+   - If the scene includes any person, ALWAYS explicitly describe that person as a young Korean woman (e.g. "a Korean woman in her 20s") — never leave ethnicity unspecified or default to any other nationality.
 
 Respond with ONLY a compact JSON object in exactly this shape, no markdown fences, no explanation: {"title": "...", "backgroundPrompt": "..."}`;
 
