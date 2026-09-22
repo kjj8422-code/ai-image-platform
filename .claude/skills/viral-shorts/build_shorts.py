@@ -118,7 +118,11 @@ DEFAULT_VOICE_STYLE = {
     "pitch": "+0Hz",
 }
 # 장면 사이에는 쉼표만 넣는다. 마침표로 끊으면 TTS가 끝을 내려 읽어 단절감이 생긴다.
+# 단 줄이 이미 느낌표·물음표·말줄임표로 끝났다면 쉼표를 붙이지 않는다. "들어있어!,"
+# 처럼 붙여 보내면 음성엔진이 그 뒤의 쉼표를 보고 평범한 쉼으로 읽어버려서,
+# 대본에 힘들여 넣은 억양 신호가 엔진에 닿기도 전에 지워진다.
 NARRATION_JOINER = ", "
+SENTENCE_ENDINGS = ("!", "?", ".", "…")
 KEN_BURNS_ZOOM = 1.12
 BGM_GAIN = 10 ** (-15 / 20)  # 요구사항: BGM -15dB 감쇄
 THUMBNAIL_COPY_SECONDS = 1.6
@@ -324,8 +328,24 @@ def synthesize_narration(
 
 
 def _ink(text: str) -> str:
-    """공백과 이어붙임용 쉼표를 뺀, 실제로 읽히는 글자만 남긴다."""
-    return re.sub(r"[\s,]", "", text)
+    """글자만 남긴다(한글·자모·영숫자). 공백과 문장부호는 모두 뺀다.
+
+    장면을 나눌 때 쓰는 자라서, 음성엔진이 단어를 돌려줄 때 문장부호를 붙여주든
+    떼어버리든 같은 길이가 나와야 한다. 부호를 세다가는 엔진이 "어?"를 "어"로
+    돌려주는 것만으로 장면 경계가 한 칸씩 밀린다.
+    """
+    return re.sub(r"[^0-9A-Za-z가-힣ㄱ-ㅎㅏ-ㅣ]", "", text)
+
+
+def _join_narrations(narrations: list[str]) -> str:
+    """줄을 한 문장으로 잇는다. 이미 부호로 끝난 줄에는 쉼표를 덧붙이지 않는다."""
+    parts: list[str] = []
+    for i, line in enumerate(narrations):
+        text = line.strip()
+        parts.append(text)
+        if i < len(narrations) - 1:
+            parts.append(" " if text.endswith(SENTENCE_ENDINGS) else NARRATION_JOINER)
+    return "".join(parts)
 
 
 def synthesize_all_narrations(
@@ -340,7 +360,7 @@ def synthesize_all_narrations(
     이어져 한 사람이 쭉 말하는 것처럼 들린다.
     """
     style = style or DEFAULT_VOICE_STYLE
-    joined = NARRATION_JOINER.join(n.strip() for n in narrations)
+    joined = _join_narrations(narrations)
     try:
         words = synthesize_narration(
             joined, style["voice"], dest, style["rate"], style["pitch"]
