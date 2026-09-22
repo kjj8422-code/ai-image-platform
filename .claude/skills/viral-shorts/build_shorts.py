@@ -75,7 +75,13 @@ TEXT_MAX_WIDTH = int(VIDEO_WIDTH * 0.7)
 SUBTITLE_MAX_HEIGHT = 280
 THUMBNAIL_COPY_MAX_HEIGHT = 430
 
-SCENE_TAIL_PADDING = 0.35  # 장면 끝에 숨 쉴 여유
+# 나레이션을 통째로 한 번에 읽히므로 장면 사이에 무음을 따로 끼우지 않는다.
+# 이 값은 마지막 장면에서 말이 끝나자마자 영상이 뚝 끊기지 않게 두는 꼬리 여유다.
+SCENE_TAIL_PADDING = 0.08
+# 쇼츠 나레이션은 일상 대화보다 조금 빨라야 넘기지 않는다.
+NARRATION_RATE = "+12%"
+# 장면 사이에는 쉼표만 넣는다. 마침표로 끊으면 TTS가 끝을 내려 읽어 단절감이 생긴다.
+NARRATION_JOINER = ", "
 KEN_BURNS_ZOOM = 1.12
 BGM_GAIN = 10 ** (-15 / 20)  # 요구사항: BGM -15dB 감쇄
 THUMBNAIL_COPY_SECONDS = 1.6
@@ -245,10 +251,10 @@ def download_image(config: dict, token: str, url: str, dest: Path) -> Path:
 # TTS (edge-tts) — 단어별 타이밍까지 함께 받는다
 # --------------------------------------------------------------------------
 
-async def _synthesize(text: str, voice: str, dest: Path) -> list[dict]:
+async def _synthesize(text: str, voice: str, dest: Path, rate: str) -> list[dict]:
     import edge_tts
 
-    communicate = edge_tts.Communicate(text, voice, boundary="WordBoundary")
+    communicate = edge_tts.Communicate(text, voice, rate=rate, boundary="WordBoundary")
     words: list[dict] = []
     with open(dest, "wb") as handle:
         async for chunk in communicate.stream():
@@ -265,9 +271,50 @@ async def _synthesize(text: str, voice: str, dest: Path) -> list[dict]:
     return words
 
 
-def synthesize_narration(text: str, voice: str, dest: Path) -> list[dict]:
-    """나레이션 한 줄을 mp3로 만들고 단어별 (시작초, 길이) 목록을 돌려준다."""
-    return asyncio.run(_synthesize(text, voice, dest))
+def synthesize_narration(
+    text: str, voice: str, dest: Path, rate: str = NARRATION_RATE
+) -> list[dict]:
+    """나레이션을 mp3로 만들고 단어별 (시작초, 길이) 목록을 돌려준다."""
+    return asyncio.run(_synthesize(text, voice, dest, rate))
+
+
+def _ink(text: str) -> str:
+    """공백과 이어붙임용 쉼표를 뺀, 실제로 읽히는 글자만 남긴다."""
+    return re.sub(r"[\s,]", "", text)
+
+
+def synthesize_all_narrations(
+    narrations: list[str], voice: str, dest: Path, rate: str = NARRATION_RATE
+) -> list[list[dict]]:
+    """전체 나레이션을 한 번에 읽히고, 단어 타이밍으로 장면 경계를 되찾는다.
+
+    줄마다 따로 합성하면 TTS가 매 줄을 완결된 문장으로 취급해 끝을 내려 읽고,
+    클립마다 앞뒤 무음까지 붙어서 장면 사이가 뚝뚝 끊긴다. 한 번에 읽히면 억양이
+    이어져 한 사람이 쭉 말하는 것처럼 들린다.
+    """
+    joined = NARRATION_JOINER.join(n.strip() for n in narrations)
+    words = synthesize_narration(joined, voice, dest, rate)
+
+    # edge-tts가 단어를 어떻게 쪼개 돌려주든, 읽히는 글자 수를 세어 맞추면
+    # 장면 경계가 어긋나지 않는다(토큰 개수로 맞추면 구두점 때문에 밀린다).
+    targets = [len(_ink(n)) for n in narrations]
+    per_scene: list[list[dict]] = [[] for _ in narrations]
+    index = 0
+    filled = 0
+    for word in words:
+        if index < len(narrations) - 1 and filled >= targets[index]:
+            index += 1
+            filled = 0
+        per_scene[index].append(word)
+        filled += len(_ink(word["text"]))
+
+    empty = [i + 1 for i, chunk in enumerate(per_scene) if not chunk]
+    if empty:
+        raise RuntimeError(
+            f"나레이션을 장면별로 나누지 못했습니다(빈 장면: {empty}). "
+            "--regenerate 로 다시 시도해주세요."
+        )
+    return per_scene
 
 
 # --------------------------------------------------------------------------
@@ -404,15 +451,20 @@ def build_scene_clip(
     )
 
 
-def build_audio(scenes: list[dict], total_duration: float, bgm_mood: str):
+def build_audio(
+    scenes: list[dict],
+    total_duration: float,
+    bgm_mood: str,
+    narration_path: Path,
+):
     """나레이션 + 장면별 SFX + 루프 BGM(-15dB)을 한 트랙으로 섞는다."""
     from moviepy import AudioFileClip, CompositeAudioClip, afx
 
-    tracks = []
-    for scene in scenes:
-        narration = AudioFileClip(str(scene["audio_path"])).with_start(scene["start"])
-        tracks.append(narration)
+    # 나레이션은 통째로 한 트랙이다. 장면마다 잘라 붙이면 이어 읽힌 억양이
+    # 이음매에서 다시 끊기므로 자르지 않는다.
+    tracks = [AudioFileClip(str(narration_path)).with_start(0)]
 
+    for scene in scenes:
         cue = scene.get("sfx", "none")
         if cue and cue != "none":
             sfx_path = SFX_DIR / f"{cue}.mp3"
@@ -434,7 +486,11 @@ def build_audio(scenes: list[dict], total_duration: float, bgm_mood: str):
 
 
 def build_video(
-    storyboard: dict, scenes: list[dict], out_path: Path, ken_burns: bool = True
+    storyboard: dict,
+    scenes: list[dict],
+    out_path: Path,
+    narration_path: Path,
+    ken_burns: bool = True,
 ) -> Path:
     from moviepy import concatenate_videoclips
 
@@ -456,7 +512,12 @@ def build_video(
     video = concatenate_videoclips(clips, method="compose")
 
     video = video.with_audio(
-        build_audio(scenes, video.duration, storyboard.get("bgmMood", "mystery"))
+        build_audio(
+            scenes,
+            video.duration,
+            storyboard.get("bgmMood", "mystery"),
+            narration_path,
+        )
     )
     video.write_videofile(
         str(out_path),
@@ -555,14 +616,12 @@ def main() -> None:
     print(f"   썸네일 카피: {storyboard.get('thumbnailCopy')}")
     print(f"   BGM 분위기: {storyboard.get('bgmMood')}")
 
-    scenes: list[dict] = []
-    cursor = 0.0
+    # 이미지를 먼저 다 준비한다. 나레이션은 그다음에 통째로 한 번 읽힌다.
+    prepared: list[dict] = []
     for raw_scene in storyboard["scenes"]:
         index = raw_scene["index"]
         raw_path = work_dir / "images" / f"scene_{index}_raw.webp"
         image_path = work_dir / "images" / f"scene_{index}.png"
-        audio_path = work_dir / "audio" / f"scene_{index}.mp3"
-        words_path = work_dir / "audio" / f"scene_{index}.words.json"
 
         # 같은 폴더로 다시 돌리면 이미 만든 소재를 재사용한다. 이미지는 생성할 때마다
         # 실제로 비용이 나가므로, 자막·효과음만 손보려고 재실행할 때 또 낼 이유가 없다.
@@ -583,33 +642,50 @@ def main() -> None:
             )
             fit_to_frame(raw_path, image_path)
 
-        if audio_path.exists() and words_path.exists() and not args.regenerate:
-            print(f"4-{index}) 장면 {index} 음성 재사용")
-            words = json.loads(words_path.read_text(encoding="utf-8"))
+        prepared.append({**raw_scene, "image_path": image_path})
+
+    narration_path = work_dir / "audio" / "narration.mp3"
+    words_path = work_dir / "audio" / "narration.words.json"
+    if narration_path.exists() and words_path.exists() and not args.regenerate:
+        print("4) 나레이션 재사용")
+        per_scene_words = json.loads(words_path.read_text(encoding="utf-8"))
+    else:
+        print(f"4) 나레이션 {len(prepared)}줄을 한 번에 합성하는 중...")
+        per_scene_words = synthesize_all_narrations(
+            [s["narration"] for s in prepared], args.voice, narration_path
+        )
+        words_path.write_text(
+            json.dumps(per_scene_words, ensure_ascii=False), encoding="utf-8"
+        )
+
+    from moviepy import AudioFileClip
+
+    with AudioFileClip(str(narration_path)) as probe:
+        narration_duration = probe.duration
+
+    # 장면 경계는 그 장면의 첫 단어가 발음되기 시작하는 시점이다. 이렇게 잡으면
+    # 그림이 바뀌는 순간과 말이 넘어가는 순간이 정확히 맞는다. 첫 장면만 0에서 연다.
+    scenes: list[dict] = []
+    for i, (raw_scene, words) in enumerate(zip(prepared, per_scene_words)):
+        scene_start = 0.0 if i == 0 else words[0]["start"]
+        if i + 1 < len(per_scene_words):
+            scene_end = per_scene_words[i + 1][0]["start"]
         else:
-            print(f"4-{index}) 장면 {index} 음성 합성 중...")
-            words = synthesize_narration(raw_scene["narration"], args.voice, audio_path)
-            words_path.write_text(
-                json.dumps(words, ensure_ascii=False), encoding="utf-8"
-            )
-
-        from moviepy import AudioFileClip
-
-        with AudioFileClip(str(audio_path)) as probe:
-            audio_duration = probe.duration
-        duration = audio_duration + SCENE_TAIL_PADDING
+            scene_end = narration_duration + SCENE_TAIL_PADDING
 
         scenes.append(
             {
                 **raw_scene,
-                "image_path": image_path,
-                "audio_path": audio_path,
-                "words": words,
-                "duration": duration,
-                "start": cursor,
+                # 자막은 장면 클립 안에서 그려지므로 장면 기준 시각으로 바꿔 둔다.
+                "words": [
+                    {**w, "start": max(w["start"] - scene_start, 0.0)} for w in words
+                ],
+                "duration": max(scene_end - scene_start, 0.4),
+                "start": scene_start,
             }
         )
-        cursor += duration
+
+    cursor = scenes[-1]["start"] + scenes[-1]["duration"]
 
     total = math.ceil(cursor)
     print(f"\n=== 타임라인 (총 약 {total}초) ===")
@@ -624,7 +700,9 @@ def main() -> None:
         return
 
     print("\n5) 영상 합성 중... (이미지 줌 + 단어 자막 + SFX + BGM)")
-    out_path = build_video(storyboard, scenes, work_dir / "final.mp4")
+    out_path = build_video(
+        storyboard, scenes, work_dir / "final.mp4", narration_path
+    )
     print(f"\n완료! -> {out_path.resolve()}")
 
 
