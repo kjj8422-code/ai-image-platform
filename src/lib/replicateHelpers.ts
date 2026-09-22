@@ -109,9 +109,9 @@ Given a short script or keyword (possibly in Korean), produce two things:
    - Lean hard into questions, indignation/outrage, a twist, meme energy, and deadpan wit — a Korean viewer should react with "어? 진짜?" or "뭔데 이게?", never just nod politely.
    - Naturally sprinkle mobile-native endings like "ㅋㅋㅋ", "ㄷㄷ", or "??" where they actually land — don't force one onto every line, and never let it push past 4 어절.
 
-   Examples (input -> title), follow this transformation style exactly — notice the title shares NO words with the input:
+   Examples (input -> title), follow this transformation style exactly — notice the title shares NO words with the input. These are style references only; never reuse these exact phrases in your answer:
    - "퇴근 후 30분 홈트레이닝으로 뱃살 빼는 법" -> "이거 안 하면 손해ㄹㅇ"
-   - "백록담에서 등산 오른 여성이 구름을 비닐봉지에 담는 모습" -> "구름 포장 실화냐ㅋㅋㅋ"
+   - "고양이가 냉장고 문 여는 법을 스스로 터득한 영상" -> "이제 아무도 못 막음ㅋㅋ"
    - "신입사원이 첫 출근날 겪은 황당한 실수담" -> "첫 출근에 이게 무슨 일ㄷㄷ"
 
 2. "backgroundPrompt": a single vivid, detailed ENGLISH prompt describing a photographic background scene for this thumbnail (no on-image text, no typography, no captions).

@@ -23,6 +23,16 @@ const resolveImageCount = (value: unknown): number => {
   return Math.min(parsed, MAX_IMAGES_PER_REQUEST);
 };
 
+const containsHangul = (text: string): boolean => /[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(text);
+
+// 썸네일 화면은 이미 완성된 영문 프롬프트(문구 추천 단계에서 만든 것)를 보낸다.
+// 그걸 또 보강하면 애써 넣은 구도·인물 지시가 임의로 다시 쓰이고, Claude 호출이
+// 한 번 더 들어가 Replicate 순간 속도제한에도 더 자주 걸린다. 그래서 호출부가
+// enhance:false를 주면 건너뛴다 — 다만 프롬프트에 한글이 섞여 있으면 번역이
+// 반드시 필요하므로 그때는 요청과 무관하게 보강한다.
+const shouldEnhancePrompt = (prompt: string, requested: unknown): boolean =>
+  requested === false ? containsHangul(prompt) : true;
+
 // 최대 실행 시간을 넉넉히 잡아둔다 (번역 호출 + 이미지 4장 순차 생성 +
 // 속도 제한에 걸렸을 때의 재시도 대기 시간까지 합치면 기본 10초로는 부족할 수 있음).
 export const maxDuration = 60;
@@ -88,7 +98,9 @@ export async function POST(request: NextRequest) {
     const replicate = new Replicate({ auth: replicateApiToken });
 
     // 프롬프트 자동 번역·보강 (한글 등 비영어 입력도 Flux가 정확히 이해하도록)
-    const enhancedPrompt = await enhancePrompt(replicate, prompt);
+    const enhancedPrompt = shouldEnhancePrompt(prompt, body?.enhance)
+      ? await enhancePrompt(replicate, prompt)
+      : prompt;
 
     // Flux 1.1 Pro로 이미지 여러 장을 생성 — 품질 정책상 항상 Pro 모델만 사용.
     // Replicate의 "한 번에 1개 요청" 속도 제한 때문에 동시(병렬) 호출이 아니라

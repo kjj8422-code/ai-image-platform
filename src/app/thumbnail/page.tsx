@@ -107,6 +107,9 @@ export default function ThumbnailPage() {
           prompt: backgroundPrompt,
           format: "story",
           count: BACKGROUND_CANDIDATE_COUNT,
+          // 이미 문구 추천 단계에서 구도·인물 지시까지 담아 만든 영문 프롬프트라
+          // 서버에서 다시 보강하지 않는다(한글을 직접 써 넣은 경우는 서버가 알아서 번역).
+          enhance: false,
         }),
       });
       const result = await response.json();

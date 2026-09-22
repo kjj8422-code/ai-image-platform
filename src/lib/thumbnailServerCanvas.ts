@@ -98,6 +98,10 @@ const drawTopGradient = (
   ctx.fillRect(0, 0, THUMBNAIL_WIDTH, gradientHeight);
 };
 
+// 어절 단위로 줄을 나누되, 한 어절 자체가 한 줄 너비를 넘으면 글자 단위로 쪼갠다.
+// 한국어 제목은 "노을을병에가둬버렸다고요ㅋㅋㅋ"처럼 띄어쓰기 없이 길게 쓰는 경우가
+// 흔한데, 공백으로만 나누면 그런 제목이 한 줄에 그대로 남아 화면 밖으로 잘려 나간다
+// (실제로 잘리는 걸 확인하고 고침).
 const wrapText = (
   ctx: SKRSContext2D,
   text: string,
@@ -109,18 +113,46 @@ const wrapText = (
   }
 
   const lines: string[] = [];
-  let current = words[0];
-  for (const word of words.slice(1)) {
-    const candidate = `${current} ${word}`;
+  let current = "";
+
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
     if (ctx.measureText(candidate).width <= maxWidth) {
       current = candidate;
-    } else {
-      lines.push(current);
-      current = word;
+      continue;
     }
+
+    if (current) {
+      lines.push(current);
+      current = "";
+    }
+
+    if (ctx.measureText(word).width <= maxWidth) {
+      current = word;
+      continue;
+    }
+
+    // 한 어절이 통째로 너비를 넘는 경우: 글자 단위로 끊어 담는다.
+    let chunk = "";
+    for (const char of Array.from(word)) {
+      const nextChunk = chunk + char;
+      if (ctx.measureText(nextChunk).width <= maxWidth) {
+        chunk = nextChunk;
+      } else {
+        if (chunk) {
+          lines.push(chunk);
+        }
+        chunk = char;
+      }
+    }
+    current = chunk;
   }
-  lines.push(current);
-  return lines;
+
+  if (current) {
+    lines.push(current);
+  }
+
+  return lines.length > 0 ? lines : [text];
 };
 
 type FitResult = { fontSize: number; lines: string[]; lineHeight: number };
@@ -139,8 +171,17 @@ const fitTitleText = (
     const lines = wrapText(ctx, text, maxWidth);
     const lineHeight = fontSize * 1.25;
     const blockHeight = lines.length * lineHeight;
+    // 줄 수·높이뿐 아니라 실제 줄 너비까지 확인한다. 예전에는 너비를 안 봐서,
+    // 쪼갤 수 없는 긴 제목이 그대로 한 줄에 남아 화면 밖으로 넘쳐도 통과됐다.
+    const widestLine = Math.max(
+      ...lines.map((line) => ctx.measureText(line).width),
+    );
 
-    if (lines.length <= MAX_TEXT_LINES && blockHeight <= maxBlockHeight) {
+    if (
+      lines.length <= MAX_TEXT_LINES &&
+      blockHeight <= maxBlockHeight &&
+      widestLine <= maxWidth
+    ) {
       return { fontSize, lines, lineHeight };
     }
     fontSize -= FONT_STEP;
