@@ -69,8 +69,40 @@ Rules for "narration" (Korean, one line per scene):
 - 썰체/구어체 only. Talk like you're telling a friend something unbelievable that just happened to you.
 - NEVER use stiff narration or textbook phrasing ("~하는 방법", "~의 모든 것", "오늘은 ~에 대해 알아보겠습니다"). If it sounds like a documentary or a blog intro, rewrite it.
 - Use wit, provocation, mock-outrage, and 억울함. Endings like "ㅋㅋㅋ", "ㄷㄷ", "??", "아니 진짜로" are welcome where they land naturally.
-- Scene 1 must be a hook that makes stopping unavoidable. Scene 6 must land a twist, a punchline, or a "그래서 어떻게 됐냐면" cliffhanger.
-- Each scene's narration should be about 2 to 4 seconds when read aloud (roughly 10~25 Korean characters). Keep the whole thing under 30 seconds.
+- Each scene's narration should be about 2 to 4 seconds when read aloud. Keep the whole thing under 30 seconds.
+
+【이야기 뼈대】 ${SCENE_COUNT}개 장면을 이 흐름으로 짜라.
+- 첫 장면: 훅. 결과나 제일 이상한 장면을 먼저 던져라. 배경 설명으로 시작하면 그 자리에서 넘긴다.
+- 중간: 한 장면에 새 정보 하나씩. 장면이 끝날 때마다 "그래서 어떻게 됐는데?" 가 남아야 한다.
+- 뒤에서 두세 번째: 시청자가 속으로 품을 의심을 네가 먼저 말해라. ("이거 편집 아니냐고?")
+- 마지막 직전: 반전. 앞에서 깔아둔 게 뒤집힌다. 여기가 제일 세야 한다.
+- 마지막: 한 줄로 툭 끝낸다. 교훈이나 정리는 절대 쓰지 마라.
+
+【허접해 보이지 않으려면】
+- "아름다운", "환상적인", "신비로운" 같은 형용사를 쓰지 마라. 무슨 일이 벌어졌는지만 말해라. 감상은 보는 사람이 한다.
+- 두루뭉술한 말 대신 숫자와 구체적인 것을 넣어라. "한참" 대신 "세 시간째", "많이" 대신 "네 번".
+- 자랑하지 마라. 당황하고, 억울해하고, 실패해라. 일이 잘 풀리는 얘기는 아무도 안 본다.
+
+【말이 이어지게】 나레이션 전체가 한 사람이 쉬지 않고 말하는 한 덩어리로 들려야 한다. 단 이어붙이는 방법을 줄마다 바꿔라. 같은 방법을 반복하면 억지로 갖다 붙인 티가 난다. 아래를 섞어 써라:
+- 연결어미로 넘기기 — "~했는데", "~더니", "~다가", "~길래"
+- 다음 줄이 접속사로 받기 — "근데", "그래서", "아니 근데", "심지어", "결국"
+- 질문 던지고 다음 줄에서 답하기 — "이게 말이 되냐?" 다음 줄 "되더라고"
+- 짧게 툭 끊고 다음 줄이 이어받기 — "근데 안 꺼짐." 다음 줄 "세 시간째."
+- 앞줄의 단어를 다음 줄 첫머리에서 다시 받기
+딱 끝맺는 건 마지막 장면 하나뿐이다.
+
+【리듬】 전부 비슷한 길이면 읽을 때 리듬이 죽어서 기계가 읽는 것처럼 들린다. 숫자로 지킬 것:
+- 공백을 뺀 글자 수로 셌을 때, 가장 짧은 줄은 8자 이하여야 한다.
+- 가장 긴 줄은 20자 이상이어야 한다. 즉 차이가 12자 이상이어야 한다. 모든 줄이 10~15자 언저리로 고르게 나오면 그건 실패다.
+- 8자 이하인 짧은 줄은 반전 직전이나 직후에 놓으면 제일 세게 꽂힌다.
+
+【톤이 살아나게】 이 대본은 기계 음성이 소리 내어 읽는다. 문장부호와 감탄사가 없으면 전부 같은 높이로 읽어서 감정 없는 안내방송처럼 들린다:
+- 물음표(?)가 들어간 줄이 최소 하나 — 의심하거나 되묻는 장면
+- 느낌표(!)가 들어간 줄이 최소 하나 — 반전이나 놀라는 장면
+- 말줄임표(...)로 뜸 들이는 줄이 하나 — 긴장을 끄는 장면
+- 감탄사로 시작하는 줄이 최소 둘 — "헐", "아니", "와", "야", "잠깐", "어?" 아끼지 마라.
+
+【자가검사】 다 쓰고 나서 줄 끝 두 글자만 세로로 읽어봐라. 같은 게 두 번 나오면 그 대본은 버리고 처음부터 다시 써라.
 
 Rules for "imagePrompt" (English, one per scene):
 - Describe ONLY what is happening in that scene: the action, the Jeju location, the time of day, the light, the camera angle. Do NOT describe the character's appearance, clothes, or hair — that is added separately and must not be repeated.
