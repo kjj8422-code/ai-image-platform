@@ -42,6 +42,12 @@ README에 적힌 이름으로 mp3를 넣어두면 자동으로 쓰이고, 없으
 python .claude/skills/viral-shorts/build_shorts.py --topic "$ARG_TOPIC"
 ```
 
+웹 화면(`/shorts`)에서 내 이미지를 올려 만든 프로젝트 파일로 영상만 뽑을 때 — 이미지가
+이미 있으므로 생성 비용이 들지 않는다:
+```bash
+python .claude/skills/viral-shorts/build_shorts.py --project shorts-project.json
+```
+
 대본·이미지·음성까지만 만들어 먼저 검토하고 싶을 때:
 ```bash
 python .claude/skills/viral-shorts/build_shorts.py --topic "$ARG_TOPIC" --skip-video
