@@ -32,6 +32,7 @@ import os
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -44,6 +45,15 @@ try:
     truststore.inject_into_ssl()
 except ImportError:  # 개인 네트워크 등 필요 없는 환경에서는 없어도 그만이다.
     pass
+
+# 윈도우 기본 콘솔(cp949)은 em대시 같은 문자를 인코딩하지 못해 print에서 그대로
+# 죽어버린다(실제로 합성 마지막 단계에서 크래시했다). 출력 때문에 작업이 날아가면
+# 안 되니 표현 불가 문자는 대체하고 진행한다.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except (AttributeError, ValueError):
+        pass
 
 SKILL_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SKILL_DIR.parents[2]  # .claude/skills/viral-shorts -> ai-image-platform
@@ -197,9 +207,37 @@ def generate_scene_image(config: dict, token: str, prompt: str) -> str:
     return urls[0]
 
 
-def download(url: str, dest: Path) -> Path:
-    with urllib.request.urlopen(url, timeout=120) as response:
-        dest.write_bytes(response.read())
+IMAGE_MAGIC_PREFIXES = (b"\x89PNG", b"\xff\xd8\xff", b"RIFF", b"GIF8")
+
+
+def download_image(config: dict, token: str, url: str, dest: Path) -> Path:
+    """이미지를 우리 서버의 다운로드 프록시를 통해 받아온다.
+
+    Replicate CDN(replicate.delivery)을 로컬에서 직접 받으면, 회사망처럼 미분류
+    도메인을 가로채는 프록시 환경에서 이미지 대신 차단 안내 HTML이 내려온다
+    (실제로 이 스크립트 첫 실행에서 그렇게 실패했다). 배포 서버는 그 프록시
+    밖에 있으므로 /api/download 가 대신 받아서 넘겨주면 어느 망에서든 동작한다.
+    """
+    proxied = (
+        f"{config['base_url']}/api/download?url={urllib.parse.quote(url, safe='')}"
+    )
+    request = urllib.request.Request(
+        proxied, headers={"Authorization": f"Bearer {token}"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            payload = response.read()
+    except urllib.error.HTTPError as err:
+        raw = err.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"이미지 다운로드 실패 ({err.code}): {raw}") from err
+
+    if not payload.startswith(IMAGE_MAGIC_PREFIXES):
+        raise RuntimeError(
+            "내려받은 파일이 이미지가 아닙니다. 네트워크(프록시)가 응답을 가로챘을 수 "
+            f"있습니다. 앞부분: {payload[:80]!r}"
+        )
+
+    dest.write_bytes(payload)
     return dest
 
 
@@ -306,14 +344,23 @@ def _ken_burns(clip, duration: float, mode: str):
     return clip.resized(scale).with_position(("center", "center"))
 
 
-def build_scene_clip(scene: dict, image_path: Path, duration: float):
-    """장면 1개: Ken Burns 배경 + 단어별 자막."""
+def build_scene_clip(
+    scene: dict,
+    image_path: Path,
+    duration: float,
+    thumbnail_copy: str = "",
+    ken_burns: bool = True,
+):
+    """장면 1개: Ken Burns 배경 + 단어별 자막 (+ 첫 장면이면 썸네일 카피)."""
     from moviepy import CompositeVideoClip, ImageClip
 
-    background = _ken_burns(
-        ImageClip(str(image_path)).with_duration(duration),
-        duration,
-        scene.get("kenBurns", "in"),
+    still = ImageClip(str(image_path)).with_duration(duration)
+    # Ken Burns는 매 프레임 리사이즈라 렌더 시간의 대부분을 차지한다. 자막·타이밍만
+    # 빠르게 확인하고 싶을 때는 끌 수 있게 해둔다.
+    background = (
+        _ken_burns(still, duration, scene.get("kenBurns", "in"))
+        if ken_burns
+        else still.with_position(("center", "center"))
     )
 
     layers = [background]
@@ -332,6 +379,14 @@ def build_scene_clip(scene: dict, image_path: Path, duration: float):
             .with_start(start)
             .with_duration(word_duration)
             .with_position(("center", SUBTITLE_Y))
+        )
+
+    if thumbnail_copy:
+        layers.append(
+            _text_clip(thumbnail_copy, 118, 16, THUMBNAIL_COPY_MAX_HEIGHT)
+            .with_start(0)
+            .with_duration(min(THUMBNAIL_COPY_SECONDS, duration))
+            .with_position(("center", THUMBNAIL_COPY_Y))
         )
 
     return CompositeVideoClip(layers, size=(VIDEO_WIDTH, VIDEO_HEIGHT)).with_duration(
@@ -368,25 +423,27 @@ def build_audio(scenes: list[dict], total_duration: float, bgm_mood: str):
     return CompositeAudioClip(tracks).with_duration(total_duration)
 
 
-def build_video(storyboard: dict, scenes: list[dict], out_path: Path) -> Path:
-    from moviepy import CompositeVideoClip, concatenate_videoclips
+def build_video(
+    storyboard: dict, scenes: list[dict], out_path: Path, ken_burns: bool = True
+) -> Path:
+    from moviepy import concatenate_videoclips
+
+    # 훅용 썸네일 카피는 첫 장면 안에서 합성한다. 완성된 영상 전체를 다시
+    # CompositeVideoClip으로 감싸면 1.6초짜리 자막 하나 때문에 모든 프레임이 합성
+    # 단계를 한 번 더 거치게 되어 렌더가 눈에 띄게 느려진다.
+    copy_text = storyboard.get("thumbnailCopy", "").strip()
 
     clips = [
-        build_scene_clip(scene, scene["image_path"], scene["duration"])
-        for scene in scenes
+        build_scene_clip(
+            scene,
+            scene["image_path"],
+            scene["duration"],
+            thumbnail_copy=copy_text if index == 0 else "",
+            ken_burns=ken_burns,
+        )
+        for index, scene in enumerate(scenes)
     ]
     video = concatenate_videoclips(clips, method="compose")
-
-    # 첫 프레임 위 썸네일 카피 (훅 강화용)
-    copy_text = storyboard.get("thumbnailCopy", "").strip()
-    if copy_text:
-        overlay = (
-            _text_clip(copy_text, 118, 16, THUMBNAIL_COPY_MAX_HEIGHT)
-            .with_start(0)
-            .with_duration(min(THUMBNAIL_COPY_SECONDS, video.duration))
-            .with_position(("center", THUMBNAIL_COPY_Y))
-        )
-        video = CompositeVideoClip([video, overlay], size=(VIDEO_WIDTH, VIDEO_HEIGHT))
 
     video = video.with_audio(
         build_audio(scenes, video.duration, storyboard.get("bgmMood", "mystery"))
@@ -396,7 +453,10 @@ def build_video(storyboard: dict, scenes: list[dict], out_path: Path) -> Path:
         fps=FPS,
         codec="libx264",
         audio_codec="aac",
-        preset="medium",
+        # 세로 1080x1920은 프레임이 커서 medium으로 두면 30초 영상에도 10분 넘게
+        # 걸린다. 화질 차이는 거의 없고 속도는 크게 줄어드는 veryfast를 쓴다.
+        preset="veryfast",
+        threads=os.cpu_count() or 4,
         logger=None,
     )
     return out_path
@@ -438,6 +498,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="대본·이미지·음성까지만 만들고 영상 합성은 건너뛴다",
     )
+    parser.add_argument(
+        "--regenerate",
+        action="store_true",
+        help="이미 만들어둔 이미지·음성을 무시하고 전부 새로 생성한다(이미지 생성 비용 발생)",
+    )
     return parser.parse_args()
 
 
@@ -475,16 +540,34 @@ def main() -> None:
     cursor = 0.0
     for raw_scene in storyboard["scenes"]:
         index = raw_scene["index"]
-        print(f"3-{index}) 장면 {index} 이미지 생성 중...")
         raw_path = work_dir / "images" / f"scene_{index}_raw.webp"
-        download(
-            generate_scene_image(config, token, raw_scene["imagePrompt"]), raw_path
-        )
-        image_path = fit_to_frame(raw_path, work_dir / "images" / f"scene_{index}.png")
-
-        print(f"4-{index}) 장면 {index} 음성 합성 중...")
+        image_path = work_dir / "images" / f"scene_{index}.png"
         audio_path = work_dir / "audio" / f"scene_{index}.mp3"
-        words = synthesize_narration(raw_scene["narration"], args.voice, audio_path)
+        words_path = work_dir / "audio" / f"scene_{index}.words.json"
+
+        # 같은 폴더로 다시 돌리면 이미 만든 소재를 재사용한다. 이미지는 생성할 때마다
+        # 실제로 비용이 나가므로, 자막·효과음만 손보려고 재실행할 때 또 낼 이유가 없다.
+        if image_path.exists() and not args.regenerate:
+            print(f"3-{index}) 장면 {index} 이미지 재사용")
+        else:
+            print(f"3-{index}) 장면 {index} 이미지 생성 중...")
+            download_image(
+                config,
+                token,
+                generate_scene_image(config, token, raw_scene["imagePrompt"]),
+                raw_path,
+            )
+            fit_to_frame(raw_path, image_path)
+
+        if audio_path.exists() and words_path.exists() and not args.regenerate:
+            print(f"4-{index}) 장면 {index} 음성 재사용")
+            words = json.loads(words_path.read_text(encoding="utf-8"))
+        else:
+            print(f"4-{index}) 장면 {index} 음성 합성 중...")
+            words = synthesize_narration(raw_scene["narration"], args.voice, audio_path)
+            words_path.write_text(
+                json.dumps(words, ensure_ascii=False), encoding="utf-8"
+            )
 
         from moviepy import AudioFileClip
 
