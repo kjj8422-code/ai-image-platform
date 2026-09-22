@@ -6,6 +6,7 @@ import {
   extractImageUrl,
   withRetryOn429,
 } from "@/lib/replicateHelpers";
+import { DEFAULT_FORMAT_ID, resolveAspectRatio } from "@/lib/imageFormats";
 
 const replicateApiToken = process.env.REPLICATE_API_TOKEN;
 
@@ -16,21 +17,14 @@ const IMAGES_PER_REQUEST = 4;
 // 속도 제한에 걸렸을 때의 재시도 대기 시간까지 합치면 기본 10초로는 부족할 수 있음).
 export const maxDuration = 60;
 
-// Flux 1.1 Pro가 지원하는 종횡비 중 이 서비스에서 실제로 쓰는 값만 화이트리스트로
-// 제한한다 (클라이언트가 보낸 임의 문자열을 그대로 Replicate에 넘기지 않기 위한 안전장치).
-const ALLOWED_ASPECT_RATIOS = ["1:1", "9:16", "16:9", "4:5", "3:4"] as const;
-type AspectRatio = (typeof ALLOWED_ASPECT_RATIOS)[number];
-
-const isAspectRatio = (value: unknown): value is AspectRatio =>
-  typeof value === "string" &&
-  (ALLOWED_ASPECT_RATIOS as readonly string[]).includes(value);
-
 // Flux 1.1 Pro로 이미지 1장을 생성한다. 여러 장을 만들 때 매번 같은 결과가
 // 나오지 않도록 매 호출마다 랜덤 시드를 지정한다.
+// aspectRatio를 넘겨 납품 규격에 맞는 비율로 바로 생성한다(정사각형을 잘라
+// 쓰면 썸네일 규격에 미달하므로).
 const generateOneImage = async (
   replicate: Replicate,
   prompt: string,
-  aspectRatio: AspectRatio,
+  aspectRatio: string,
 ): Promise<string> => {
   const output = await withRetryOn429(() =>
     replicate.run("black-forest-labs/flux-1.1-pro", {
@@ -62,13 +56,19 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
-    const aspectRatio = isAspectRatio(body?.aspectRatio)
-      ? body.aspectRatio
-      : "1:1";
 
     if (!prompt) {
       return NextResponse.json(
         { error: "프롬프트를 입력해주세요." },
+        { status: 400 },
+      );
+    }
+
+    // 규격을 지정하지 않으면 가장 많이 쓰는 썸네일 비율로 생성한다.
+    const aspectRatio = resolveAspectRatio(body?.format ?? DEFAULT_FORMAT_ID);
+    if (!aspectRatio) {
+      return NextResponse.json(
+        { error: "지원하지 않는 규격입니다." },
         { status: 400 },
       );
     }

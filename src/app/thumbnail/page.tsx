@@ -94,7 +94,7 @@ export default function ThumbnailPage() {
       const response = await authedFetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: backgroundPrompt, aspectRatio: "9:16" }),
+        body: JSON.stringify({ prompt: backgroundPrompt, format: "story" }),
       });
       const result = await response.json();
       if (!response.ok) {
@@ -123,9 +123,9 @@ export default function ThumbnailPage() {
     }
 
     let cancelled = false;
-    setRenderError("");
 
     const run = async () => {
+      setRenderError("");
       try {
         await ensureFontReady(900);
         const image = await loadImage(selectedBackground);

@@ -4,13 +4,21 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
+import { downloadImage } from "@/lib/downloadImage";
+import {
+  DEFAULT_FORMAT_ID,
+  IMAGE_FORMATS,
+  type ImageFormatId,
+} from "@/lib/imageFormats";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
+type DownloadState = "idle" | "downloading" | "error";
 type BgRemoveState = "idle" | "processing" | "error";
 
 export default function GeneratePage() {
   const { user, loading: userLoading } = useSupabaseUser();
   const [prompt, setPrompt] = useState<string>("");
+  const [formatId, setFormatId] = useState<ImageFormatId>(DEFAULT_FORMAT_ID);
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [enhancedPrompt, setEnhancedPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -22,6 +30,25 @@ export default function GeneratePage() {
   const [bgRemovedUrls, setBgRemovedUrls] = useState<Record<string, string>>(
     {},
   );
+  const [downloadStates, setDownloadStates] = useState<
+    Record<string, DownloadState>
+  >({});
+
+  // 이미지를 사용자의 기기에 저장한다. 실패하면 버튼에 바로 표시해
+  // 왜 안 됐는지 알 수 있게 한다.
+  const handleDownload = async (imageUrl: string) => {
+    setDownloadStates((prev) => ({ ...prev, [imageUrl]: "downloading" }));
+    try {
+      await downloadImage(imageUrl);
+      setDownloadStates((prev) => ({ ...prev, [imageUrl]: "idle" }));
+    } catch (err) {
+      console.error("이미지 저장 오류:", err);
+      setDownloadStates((prev) => ({ ...prev, [imageUrl]: "error" }));
+      setErrorMessage(
+        err instanceof Error ? err.message : "이미지 저장에 실패했습니다.",
+      );
+    }
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -46,7 +73,7 @@ export default function GeneratePage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, format: formatId }),
       });
 
       const result = await response.json();
@@ -178,6 +205,33 @@ export default function GeneratePage() {
         onSubmit={(event) => void handleSubmit(event)}
         className="flex w-full max-w-2xl flex-col gap-3"
       >
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            어디에 쓸 이미지인가요? (규격에 맞는 비율로 생성됩니다)
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {IMAGE_FORMATS.map((format) => {
+              const isSelected = format.id === formatId;
+              return (
+                <button
+                  key={format.id}
+                  type="button"
+                  onClick={() => setFormatId(format.id)}
+                  aria-pressed={isSelected}
+                  className={`flex flex-col items-start rounded-xl border px-3 py-2 text-left transition-colors ${
+                    isSelected
+                      ? "border-black bg-black text-white dark:border-white dark:bg-white dark:text-black"
+                      : "border-zinc-300 text-zinc-700 hover:border-zinc-500 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500"
+                  }`}
+                >
+                  <span className="text-xs font-semibold">{format.label}</span>
+                  <span className="text-[10px] opacity-70">{format.hint}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <textarea
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
@@ -234,15 +288,18 @@ export default function GeneratePage() {
                             ? "저장 실패, 다시 시도"
                             : "갤러리에 저장"}
                     </button>
-                    <a
-                      href={imageUrl}
-                      download
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                    <button
+                      type="button"
+                      onClick={() => void handleDownload(imageUrl)}
+                      disabled={downloadStates[imageUrl] === "downloading"}
+                      className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
                     >
-                      다운로드
-                    </a>
+                      {downloadStates[imageUrl] === "downloading"
+                        ? "저장 중..."
+                        : downloadStates[imageUrl] === "error"
+                          ? "저장 실패, 다시 시도"
+                          : "이미지 저장"}
+                    </button>
                     <button
                       type="button"
                       onClick={() => void handleRemoveBackground(imageUrl)}
@@ -287,15 +344,18 @@ export default function GeneratePage() {
                               ? "✓ 저장됨"
                               : "갤러리에 저장"}
                         </button>
-                        <a
-                          href={bgRemovedUrl}
-                          download
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                        <button
+                          type="button"
+                          onClick={() => void handleDownload(bgRemovedUrl)}
+                          disabled={downloadStates[bgRemovedUrl] === "downloading"}
+                          className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
                         >
-                          다운로드
-                        </a>
+                          {downloadStates[bgRemovedUrl] === "downloading"
+                            ? "저장 중..."
+                            : downloadStates[bgRemovedUrl] === "error"
+                              ? "저장 실패, 다시 시도"
+                              : "이미지 저장"}
+                        </button>
                       </div>
                     </div>
                   )}

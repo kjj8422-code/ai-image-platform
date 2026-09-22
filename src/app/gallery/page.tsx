@@ -3,8 +3,35 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { downloadImage } from "@/lib/downloadImage";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import type { GalleryImage } from "@/lib/gallery";
+
+const toErrorMessage = (err: unknown, fallback: string): string =>
+  err instanceof Error ? err.message : fallback;
+
+// 갤러리 목록을 불러오기만 한다. 화면 상태를 건드리지 않으므로
+// effect 안에서 호출해도 렌더를 연쇄시키지 않는다.
+const fetchGalleryImages = async (): Promise<GalleryImage[]> => {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session) {
+    throw new Error("로그인이 필요합니다.");
+  }
+
+  const response = await fetch("/api/gallery/list", {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result?.error ?? "갤러리를 불러오지 못했습니다.");
+  }
+
+  return Array.isArray(result.images) ? result.images : [];
+};
 
 export default function GalleryPage() {
   const { user, loading: userLoading } = useSupabaseUser();
@@ -20,45 +47,73 @@ export default function GalleryPage() {
   const [remixSaveState, setRemixSaveState] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
+  const [downloadState, setDownloadState] = useState<
+    "idle" | "downloading" | "error"
+  >("idle");
 
-  const loadImages = async () => {
+  // 이미지를 사용자의 기기에 저장한다. 실패하면 버튼과 메시지로 함께 알린다.
+  const handleDownload = async (imageUrl: string) => {
+    setDownloadState("downloading");
+    try {
+      await downloadImage(imageUrl);
+      setDownloadState("idle");
+    } catch (err) {
+      console.error("이미지 저장 오류:", err);
+      setDownloadState("error");
+      setRemixError(toErrorMessage(err, "이미지 저장에 실패했습니다."));
+    }
+  };
+
+  // 저장 직후처럼 목록을 "다시" 불러와야 할 때 쓴다. 버튼·이벤트에서만 호출한다.
+  const reloadImages = async () => {
     setIsLoading(true);
     setLoadError("");
 
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
-        throw new Error("로그인이 필요합니다.");
-      }
-
-      const response = await fetch("/api/gallery/list", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result?.error ?? "갤러리를 불러오지 못했습니다.");
-      }
-
-      setImages(Array.isArray(result.images) ? result.images : []);
+      setImages(await fetchGalleryImages());
     } catch (err) {
-      setLoadError(
-        err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.",
-      );
+      setLoadError(toErrorMessage(err, "알 수 없는 오류가 발생했습니다."));
     } finally {
       setIsLoading(false);
     }
   };
 
+  // 화면에 처음 들어올 때 목록을 채운다.
+  //
+  // effect 본문에서 곧바로 setState를 호출하면 렌더가 연쇄적으로 일어난다.
+  // 그래서 여기서는 상태를 건드리지 않는 fetchGalleryImages를 먼저 await하고,
+  // 결과가 온 뒤에만 상태를 바꾼다. isLoading은 초기값이 이미 true라
+  // 다시 세팅할 필요도 없다.
   useEffect(() => {
-    if (user) {
-      void loadImages();
+    if (!user) {
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- user가 바뀔 때만 다시 불러오면 됨
+
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const loaded = await fetchGalleryImages();
+        if (!cancelled) {
+          setImages(loaded);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setLoadError(toErrorMessage(err, "알 수 없는 오류가 발생했습니다."));
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void run();
+
+    // 화면을 떠났거나 로그인 사용자가 바뀌면 이전 요청 결과는 버린다.
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   const toggleSelect = (id: string) => {
@@ -139,7 +194,7 @@ export default function GalleryPage() {
       }
 
       setRemixSaveState("saved");
-      await loadImages();
+      await reloadImages();
     } catch (err) {
       console.error(err);
       setRemixSaveState("error");
@@ -238,6 +293,14 @@ export default function GalleryPage() {
                 >
                   편집
                 </Link>
+                <button
+                  type="button"
+                  onClick={() => void handleDownload(image.imageUrl)}
+                  disabled={downloadState === "downloading"}
+                  className="absolute bottom-1 right-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-black disabled:opacity-50"
+                >
+                  저장
+                </button>
               </div>
             );
           })}
@@ -302,15 +365,18 @@ export default function GalleryPage() {
                     ? "저장 실패, 다시 시도"
                     : "갤러리에 저장"}
             </button>
-            <a
-              href={remixResult}
-              download
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+            <button
+              type="button"
+              onClick={() => void handleDownload(remixResult)}
+              disabled={downloadState === "downloading"}
+              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
             >
-              다운로드
-            </a>
+              {downloadState === "downloading"
+                ? "저장 중..."
+                : downloadState === "error"
+                  ? "저장 실패, 다시 시도"
+                  : "이미지 저장"}
+            </button>
           </div>
         </div>
       )}

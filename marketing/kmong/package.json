@@ -1,0 +1,12 @@
+{
+  "name": "kmong-sales-images",
+  "private": true,
+  "description": "크몽 서비스 판매 이미지 6종 + 작업물 목업 3종 (HTML을 PNG/JPG/PDF로 렌더)",
+  "scripts": {
+    "render": "node render.js 01-cover.html 02-quality.html 03-retouch.html 04-scope.html 05-package.html 06-process.html mock-thumb.html mock-detail.html mock-banner.html",
+    "export": "node export.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.0"
+  }
+}

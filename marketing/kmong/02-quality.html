@@ -1,0 +1,111 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><link rel="stylesheet" href="base.css"><style>
+.pad{padding:52px 64px}
+.head{flex-shrink:0;margin:24px 0 22px}
+.h2{font-size:38px;margin-bottom:11px}
+.head .sub{font-size:17px}
+
+.body{flex:1;display:flex;gap:20px;align-items:stretch;min-height:0}
+
+/* 왼쪽: 대표 원본 1장 + 손 부위 확대 */
+.main{width:452px;flex-shrink:0;display:flex;flex-direction:column;
+  background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02));
+  border:1px solid var(--line);border-radius:20px;padding:16px}
+.shotwrap{position:relative;border-radius:14px;overflow:hidden;
+  border:1px solid var(--line2);height:326px}
+.shotwrap img{width:100%;height:100%;object-fit:cover;object-position:center 26%;display:block}
+/* 손 부위를 잘라 확대한 인셋 — 같은 파일을 배경으로 확대해 보여준다 */
+.zoom{position:absolute;right:12px;bottom:12px;width:172px;height:172px;
+  border-radius:13px;overflow:hidden;border:2.5px solid var(--acc2);
+  box-shadow:0 14px 34px rgba(0,0,0,.6);
+  background-image:url(photos/person-2.webp);
+  background-size:1400px 1400px;background-position:-923px -362px}
+.zlab{position:absolute;right:12px;bottom:190px;
+  font-size:11.5px;font-weight:800;letter-spacing:-.015em;color:#0A0C12;
+  background:var(--acc2);padding:5px 10px;border-radius:7px}
+.mcap{margin-top:14px}
+.mcap .t{font-size:17px;font-weight:800;letter-spacing:-.03em;margin-bottom:7px}
+.mcap .d{font-size:13.5px;font-weight:500;line-height:1.55;color:var(--fg2);letter-spacing:-.02em}
+.mtags{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+.mt{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;
+  letter-spacing:-.018em;color:#DCE3EC;
+  background:rgba(255,194,74,.10);border:1px solid rgba(255,194,74,.30);
+  padding:6px 10px;border-radius:8px}
+.mt i{font-style:normal;color:var(--acc2);font-weight:900;font-size:10px}
+
+/* 오른쪽: 생성 원본 갤러리 */
+.gal{flex:1;display:flex;flex-direction:column;
+  background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.018));
+  border:1px solid var(--line);border-radius:20px;padding:16px}
+.glab{display:flex;align-items:center;gap:9px;margin-bottom:12px;flex-shrink:0}
+.glab .n{font-size:12px;font-weight:900;letter-spacing:.14em;color:var(--acc2)}
+.glab .s{font-size:12px;font-weight:600;color:var(--fg3);letter-spacing:-.015em}
+.gg{flex:1;display:grid;grid-template-columns:repeat(3,1fr);
+  grid-template-rows:1fr 1fr;gap:10px;min-height:0}
+.g{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line2)}
+.g img{width:100%;height:100%;object-fit:cover;display:block}
+.g.cut{background:
+  linear-gradient(45deg,rgba(255,255,255,.045) 25%,transparent 25%,transparent 75%,rgba(255,255,255,.045) 75%),
+  linear-gradient(45deg,rgba(255,255,255,.045) 25%,transparent 25%,transparent 75%,rgba(255,255,255,.045) 75%),
+  #12151D;
+  background-size:16px 16px;background-position:0 0,8px 8px}
+.g.cut img{object-fit:contain;padding:8px}
+.g .tag{position:absolute;left:7px;bottom:7px;font-size:10.5px;font-weight:800;
+  letter-spacing:-.015em;color:#fff;background:rgba(8,10,14,.74);
+  padding:4px 8px;border-radius:6px}
+</style></head><body>
+<div class="stage"><div class="grid"></div><div class="pad">
+
+  <div class="brandbar">
+    <div class="mark">A</div>
+    <div class="brandtxt">AI VISUAL STUDIO</div>
+    <div class="spacer"></div>
+    <div class="badge">차별점 02 — 생성 품질</div>
+  </div>
+
+  <div class="head">
+    <div class="eyebrow">보정으로 가리는 게 아니라, 처음부터 잘 뽑습니다</div>
+    <div class="h2">아래는 전부 <span class="mk">보정 전 생성 원본</span>입니다</div>
+    <div class="sub">손대지 않은 상태로 이 정도가 나옵니다. 보정은 여기서 더 올리는 작업입니다.</div>
+  </div>
+
+  <div class="body">
+    <div class="main">
+      <div class="shotwrap">
+        <img src="photos/person-2.webp" alt="">
+        <div class="zlab">검수 배율</div>
+        <div class="zoom"></div>
+      </div>
+      <div class="mcap">
+        <div class="t">손 · 표정 · 치아는 이 배율로 들여다봅니다</div>
+        <div class="d">AI가 가장 많이 망치는 부위입니다. 납품 전에 부위별로 확대해 확인하고, 걸리는 곳은 보정하거나 다시 생성합니다.</div>
+        <div class="mtags">
+          <span class="mt"><i>✓</i>제품 · 공간 · 인물 대응</span>
+          <span class="mt"><i>✓</i>배경 제거 PNG 제공</span>
+          <span class="mt"><i>✓</i>규격별 비율 생성</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="gal">
+      <div class="glab">
+        <span class="n">GENERATED SAMPLES</span>
+        <span class="s">제품 · 공간 · 인물 — 용도별 생성 원본</span>
+      </div>
+      <div class="gg">
+        <div class="g"><img src="photos/kitchen-2.webp" alt=""><span class="tag">공간 · 자연광</span></div>
+        <div class="g"><img src="photos/kitchen-3.webp" alt=""><span class="tag">공간 · 얕은 심도</span></div>
+        <div class="g"><img src="photos/beauty.webp" alt=""><span class="tag">인물 · 뷰티</span></div>
+        <div class="g"><img src="photos/bottle-shadow.webp" alt=""><span class="tag">제품 · 그림자 연출</span></div>
+        <div class="g"><img src="photos/bottle-white.webp" alt=""><span class="tag">제품 · 화이트 배경</span></div>
+        <div class="g cut"><img src="photos/bottle-cut-2.png" alt=""><span class="tag">배경 제거 (PNG)</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>모두 자체 제작 샘플입니다 — 원하는 컨셉으로 새로 생성해 드립니다</span>
+    <span class="spacer"></span>
+    <span style="color:var(--acc2)">시안 4종 제공 · 규격별 비율 생성</span>
+  </div>
+
+</div></div></body></html>
