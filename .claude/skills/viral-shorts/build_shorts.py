@@ -244,10 +244,33 @@ def sign_in(config: dict) -> str:
     return token
 
 
-def fetch_storyboard(config: dict, token: str, topic: str) -> dict:
+CHARACTER_DIR = SKILL_DIR / "characters"
+
+
+def load_character(value: str | None) -> str | None:
+    """--character 값을 실제 외모 설명으로 바꾼다.
+
+    characters/ 폴더에 같은 이름의 txt가 있으면 그 내용을 쓰고, 없으면 적어주신
+    말을 그대로 쓴다. 외모 설명은 영어로 길게 써야 그림이 제대로 나오는데, 그걸
+    매번 명령줄에 타이핑하게 하면 쓰지 않게 된다.
+    """
+    if not value:
+        return None
+    preset = CHARACTER_DIR / f"{value}.txt"
+    if preset.exists():
+        return " ".join(preset.read_text(encoding="utf-8").split())
+    return value.strip()
+
+
+def fetch_storyboard(
+    config: dict, token: str, topic: str, character: str | None = None
+) -> dict:
+    payload: dict = {"topic": topic}
+    if character:
+        payload["character"] = character
     return _http_post_json(
         f"{config['base_url']}/api/shorts/storyboard",
-        {"topic": topic},
+        payload,
         {"Authorization": f"Bearer {token}"},
     )
 
@@ -710,6 +733,12 @@ def parse_args() -> argparse.Namespace:
         help="웹 화면에서 내려받은 shorts-project.json 경로 "
         "(업로드한 이미지로 만든 시나리오를 그대로 영상으로 만든다)",
     )
+    parser.add_argument(
+        "--character",
+        default=None,
+        help="등장인물. characters/ 폴더의 파일 이름(예: 흑돼지) 또는 영어 외모 설명을 "
+        "직접 적는다. 생략하면 기본 인물(한국 여성)로 만든다. --topic 에서만 쓰인다",
+    )
     parser.add_argument("--out-dir", default="out", help="결과 저장 폴더 (기본: ./out)")
     parser.add_argument(
         "--voice",
@@ -748,7 +777,10 @@ def main() -> None:
         print(f"2) 기존 스토리보드 사용: {args.storyboard}")
     else:
         print("2) 스토리보드(6장면 대본·이미지프롬프트·SFX) 생성 중...")
-        storyboard = fetch_storyboard(config, token, args.topic)
+        character = load_character(args.character)
+        if character:
+            print(f"   캐릭터: {args.character}")
+        storyboard = fetch_storyboard(config, token, args.topic, character)
 
     work_dir = Path(args.out_dir) / slugify(
         args.topic or storyboard.get("thumbnailCopy", "shorts")
