@@ -414,7 +414,8 @@ export default function ShortsPage() {
             2. 대본과 썸네일이 나왔어요
           </p>
           <p className="-mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-            올린 {files.length}장 중 {storyboard.scenes.length}장을 골라
+            {/* 줄바꿈을 넣으면 JSX가 그 사이 공백을 지워서 "골라6개"로 붙는다 */}
+            올린 {files.length}장 중 {storyboard.scenes.length}장을 골라{" "}
             {storyboard.scenes.length}개 장면으로 만들었어요.
             {files.length > storyboard.scenes.length &&
               " 빠진 사진은 이야기에 안 맞아 뺀 것이고, 다음 영상에 쓰시면 됩니다."}
