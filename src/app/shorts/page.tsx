@@ -214,6 +214,28 @@ export default function ShortsPage() {
 
   const photoNumberOf = (url: string) => uploadedUrls.indexOf(url) + 1;
 
+  // 읽히는 글자만 센다. 대본 리듬(짧은 줄 8자 이하, 긴 줄 25자 이하)을 눈으로
+  // 맞출 수 있게 화면에 그대로 보여준다.
+  const inkLength = (text: string) =>
+    text.replace(/[^0-9A-Za-z가-힣ㄱ-ㅎㅏ-ㅣ]/g, "").length;
+
+  const changeNarration = (sceneIndex: number, text: string) => {
+    setStoryboard((prev) =>
+      prev
+        ? {
+            ...prev,
+            scenes: prev.scenes.map((scene, i) =>
+              i === sceneIndex ? { ...scene, narration: text } : scene,
+            ),
+          }
+        : prev,
+    );
+  };
+
+  const changeThumbnailCopy = (text: string) => {
+    setStoryboard((prev) => (prev ? { ...prev, thumbnailCopy: text } : prev));
+  };
+
   // 장면이 쓸 사진을 바꾼다. 고른 사진을 이미 다른 장면이 쓰고 있으면 두 장면의
   // 사진을 맞바꾼다. 한쪽으로 밀어내면 같은 사진이 두 장면에 겹치거나, 쓰던 사진이
   // 아무 데도 안 남게 된다.
@@ -488,16 +510,21 @@ export default function ShortsPage() {
                   onClick={rebuildThumbnail}
                   className="mt-1 block w-full rounded-full px-3 py-1 text-center text-xs text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
                 >
-                  첫 장면 바꿨으면 다시 만들기
+                  문구·첫 장면 바꿨으면 다시 만들기
                 </button>
               </div>
             )}
 
             <div className="flex-1">
-              <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
-                썸네일 문구: <span className="font-medium">{storyboard.thumbnailCopy}</span>
-                {" · "}BGM: {storyboard.bgmMood}
-              </p>
+              <div className="mb-2 flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                <span className="shrink-0">썸네일 문구</span>
+                <input
+                  value={storyboard.thumbnailCopy}
+                  onChange={(event) => changeThumbnailCopy(event.target.value)}
+                  className="min-w-0 flex-1 rounded border border-zinc-300 bg-transparent px-2 py-1 font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
+                />
+                <span className="shrink-0">BGM {storyboard.bgmMood}</span>
+              </div>
               <ol className="flex flex-col gap-2">
                 {storyboard.scenes.map((scene, sceneIndex) => {
                   const photoNumber = photoNumberOf(scene.imageUrl);
@@ -518,9 +545,25 @@ export default function ShortsPage() {
                         <span className="text-xs text-zinc-400">
                           장면 {scene.index} · SFX {scene.sfx} · 줌 {scene.kenBurns}
                         </span>
-                        <p className="text-zinc-800 dark:text-zinc-200">
-                          {scene.narration}
-                        </p>
+                        <textarea
+                          value={scene.narration}
+                          onChange={(event) =>
+                            changeNarration(sceneIndex, event.target.value)
+                          }
+                          rows={2}
+                          className="mt-0.5 w-full resize-y rounded border border-zinc-300 bg-transparent px-2 py-1 text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
+                        />
+                        <span
+                          className={`text-xs ${
+                            inkLength(scene.narration) > 25
+                              ? "text-amber-600 dark:text-amber-500"
+                              : "text-zinc-400"
+                          }`}
+                        >
+                          {inkLength(scene.narration)}자
+                          {inkLength(scene.narration) > 25 && " · 25자 넘으면 길어요"}
+                          {inkLength(scene.narration) <= 8 && " · 짧게 툭 (좋아요)"}
+                        </span>
                         <select
                           value={photoNumber}
                           onChange={(event) =>
