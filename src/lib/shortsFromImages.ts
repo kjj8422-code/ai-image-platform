@@ -17,6 +17,12 @@ export const MAX_IMAGES = 10;
 // 응답 형식을 정규식으로 긁어 파싱하면 모델이 형식을 어겼을 때 조용히 깨진다.
 // 구조화 출력(Zod)으로 스키마를 강제해 그 실패 경로 자체를 없앤다.
 const SceneSchema = z.object({
+  imageIndex: z
+    .number()
+    .int()
+    .describe(
+      "이 장면에 쓸 사진 번호. 올린 순서대로 1부터 센다. 사진마다 정확히 한 번씩 쓴다",
+    ),
   narration: z
     .string()
     .describe("이 장면에서 읽을 한국어 나레이션 한 줄 (썰체, 2~4초 분량)"),
@@ -29,12 +35,31 @@ const StoryboardSchema = z.object({
     .string()
     .describe("3~4단어 한국어 썸네일 문구. 요약이 아니라 반응/훅이어야 한다"),
   bgmMood: z.enum(BGM_MOODS),
-  scenes: z.array(SceneSchema).describe("업로드된 이미지와 같은 순서, 같은 개수"),
+  scenes: z
+    .array(SceneSchema)
+    .describe("이야기 순서대로. 사진 수와 같은 개수여야 한다"),
 });
 
 export type ImageStoryboardScene = z.infer<typeof SceneSchema> & {
   index: number;
   imageUrl: string;
+};
+
+// 모델이 사진 번호를 중복해서 쓰거나 빠뜨릴 수 있다. 그때 통째로 실패시키면
+// 사용자는 API 비용만 치르고 아무것도 못 받는다. 성한 번호는 그대로 두고 빈 자리만
+// 남은 번호로 메워서, 최악이라도 순서가 조금 어긋난 영상은 나오게 한다.
+const assignImages = (wanted: number[], count: number): number[] => {
+  const used = new Set<number>();
+  const kept = wanted.map((n) => {
+    if (Number.isInteger(n) && n >= 1 && n <= count && !used.has(n)) {
+      used.add(n);
+      return n;
+    }
+    return 0;
+  });
+  const spare: number[] = [];
+  for (let i = 1; i <= count; i += 1) if (!used.has(i)) spare.push(i);
+  return kept.map((n) => (n === 0 ? (spare.shift() ?? 1) : n));
 };
 
 export type ImageStoryboard = {
@@ -45,46 +70,51 @@ export type ImageStoryboard = {
 
 const buildInstruction = (imageCount: number): string => `너는 10년차 B급/C급 바이럴 숏폼 작가야. 한국 유튜브 쇼츠·인스타 릴스에서 스크롤을 멈추게 만드는 썰을 쓴다.
 
-지금 이미지 ${imageCount}장을 순서대로 받았어. 이 이미지들을 실제로 보고, 그 흐름에 맞는 15~30초짜리 숏폼 시나리오를 써줘.
+지금 사진 ${imageCount}장을 받았어. 올린 순서는 아무 의미 없다. 사진을 전부 본 다음, 가장 재밌는 이야기가 되도록 네가 순서를 정해라. 각 장면의 imageIndex에 그 장면에서 쓸 사진 번호(1~${imageCount}, 올린 순서 기준)를 적으면 된다. 사진은 하나도 빠짐없이, 한 번씩만 쓴다.
+
+장면은 정확히 ${imageCount}개다. 전체 길이는 ${imageCount * 3}초 안팎이 된다.
+
+【이야기 뼈대】 ${imageCount}개 장면을 이 흐름으로 짜라.
+- 첫 장면: 훅. 결과나 제일 이상한 장면을 먼저 던져라. 배경 설명으로 시작하면 그 자리에서 넘긴다.
+- 중간: 한 장면에 새 정보 하나씩만. 장면이 끝날 때마다 "그래서 어떻게 됐는데?" 가 남아야 한다.
+- 뒤에서 두세 번째: 시청자가 속으로 품을 의심을 네가 먼저 말해라. ("이거 편집 아니냐고?")
+- 마지막 직전: 반전. 앞에서 깔아둔 게 뒤집힌다. 여기가 제일 세야 한다.
+- 마지막: 한 줄로 툭 끝낸다. 교훈이나 정리는 절대 쓰지 마라.
+
+【허접해 보이지 않으려면】 이게 제일 중요하다.
+- 사진에 실제로 보이는 것에서 출발해라. 안 보이는 걸 지어내는 순간 유치해진다.
+- "아름다운", "환상적인", "신비로운", "따뜻한" 같은 형용사를 쓰지 마라. 무슨 일이 벌어졌는지만 말해라. 감상은 보는 사람이 한다.
+- 두루뭉술한 말 대신 숫자와 구체적인 것을 넣어라. "한참" 대신 "세 시간째", "많이" 대신 "네 번", "어떤 사람" 대신 "옆에 있던 아저씨".
+- 자랑하지 마라. 당황하고, 억울해하고, 실패해라. 일이 잘 풀리는 얘기는 아무도 안 본다.
+- 이미 아는 사실을 설명하지 마라. 아무도 모르던 것, 혹은 알지만 말 안 하던 것을 말해라.
 
 나레이션 규칙:
-- 이미지에 실제로 보이는 것을 근거로 써. 없는 걸 지어내지 마.
 - 썰체/구어체만 쓴다. 친구한테 방금 겪은 황당한 일을 말하듯이.
 - 다큐 내레이션이나 딱딱한 설명체 절대 금지. "~하는 방법", "~의 모든 것", "오늘은 ~에 대해 알아보겠습니다" 같은 표현이 나오면 실패한 거야.
-- 위트, 도발, 억울함, 반전을 적극 써라. 보는 사람이 "어? 이거 진짜임?", "말도 안 돼 ㅋㅋㅋ" 하게 만들어야 한다.
 - 어미에 "ㅋㅋㅋ", "ㄷㄷ", "??" 같은 모바일 말투를 자연스럽게 섞어. 억지로 매 줄에 넣지는 말고.
-- 첫 장면은 무조건 스크롤을 멈추게 하는 훅. 마지막 장면은 반전이나 빵 터지는 마무리.
 - 각 장면 나레이션은 소리 내어 읽었을 때 2~4초(한글 10~25자 정도).
-- 【말이 이어지게】 6줄 전체가 한 사람이 쉬지 않고 말하는 한 덩어리로 들려야 한다.
-  단 이어붙이는 방법을 줄마다 바꿔라. 같은 방법을 반복하면 억지로 갖다 붙인 티가
-  나고 오히려 더 어색하게 들린다. 아래를 섞어 써라:
+- 【말이 이어지게】 ${imageCount}줄 전체가 한 사람이 쉬지 않고 말하는 한 덩어리로 들려야 한다. 단 이어붙이는 방법을 줄마다 바꿔라. 같은 방법을 반복하면 억지로 갖다 붙인 티가 나고 오히려 더 어색하게 들린다. 아래를 섞어 써라:
   · 연결어미로 넘기기 — "~했는데", "~더니", "~다가", "~길래"
   · 다음 줄이 접속사로 받기 — "근데", "그래서", "아니 근데", "심지어", "결국"
   · 질문 던지고 다음 줄에서 답하기 — "이게 말이 되냐?" 다음 줄 "되더라고"
   · 짧게 툭 끊고 다음 줄이 이어받기 — "근데 안 꺼짐." 다음 줄 "세 시간째."
   · 앞줄의 단어를 다음 줄 첫머리에서 다시 받기
-- 【리듬】 줄 길이를 들쭉날쭉하게 섞어라. 6줄이 전부 비슷한 길이면 읽을 때 리듬이
-  죽어서 기계가 읽는 것처럼 들린다. 짧은 줄(5~10자)과 긴 줄(20자 안팎)을 섞어라.
-- 위 두 규칙의 자가검사: 같은 어미로 끝나는 줄이 두 개 이상이면 실패다. 다시 써라.
-  ("~는데"가 두 번 나오거나 "~길래"가 두 번 나오면 그 대본은 버리고 새로 쓴다.)
+- 【리듬】 줄 길이를 들쭉날쭉하게 섞어라. 전부 비슷한 길이면 읽을 때 리듬이 죽어서 기계가 읽는 것처럼 들린다. 짧은 줄(5~10자)과 긴 줄(20자 안팎)을 섞어라.
+- 자가검사: 같은 어미로 끝나는 줄이 두 개 이상이면 실패다. 다시 써라.
 - 딱 끝맺는 건 마지막 장면 하나뿐이다.
-- 【톤이 살아나게】 이 대본은 기계 음성이 소리 내어 읽는다. 문장부호와 감탄사가
-  없으면 여섯 줄을 전부 같은 높이, 같은 크기로 읽어서 감정 없는 안내방송처럼
-  들린다. 아래를 반드시 지켜라:
+- 【톤이 살아나게】 이 대본은 기계 음성이 소리 내어 읽는다. 문장부호와 감탄사가 없으면 전부 같은 높이, 같은 크기로 읽어서 감정 없는 안내방송처럼 들린다. 아래를 반드시 지켜라:
   · 물음표(?)가 들어간 줄이 최소 하나 — 의심하거나 되묻는 장면
   · 느낌표(!)가 들어간 줄이 최소 하나 — 반전이나 놀라는 장면
   · 말줄임표(...)로 뜸 들이는 줄이 하나 — 긴장을 끄는 장면
   · 감탄사로 시작하는 줄이 최소 둘 — "헐", "아니", "와", "야", "잠깐", "어?"
     감탄사는 읽는 억양을 가장 확실하게 바꾸는 장치다. 아끼지 마라.
-  · 여섯 줄이 전부 부호 없이 끝나면 실패다. 다시 써라.
+  · 모든 줄이 부호 없이 끝나면 실패다. 다시 써라.
 
-효과음(sfx)은 장면마다 하나씩 고른다. 1번 장면은 보통 boom이나 suspense, 반전 장면은 reveal이나 laugh가 어울린다. 효과음이 없는 게 나으면 none.
+효과음(sfx)은 장면마다 하나씩 고른다. 첫 장면은 보통 boom이나 suspense, 반전 장면은 reveal이나 laugh가 어울린다. 효과음이 없는 게 나으면 none.
 
 kenBurns는 in(긴장·집중) 또는 out(공개·스케일)을 장면 성격에 맞게 번갈아 쓴다.
 
-thumbnailCopy는 3~4어절 한국어 훅이다. 이미지 내용을 요약하지 말고, 보자마자 누르고 싶게 만드는 반응형 문구로 써라.
-
-장면은 정확히 ${imageCount}개, 받은 이미지와 같은 순서로 만들어야 한다.`;
+thumbnailCopy는 3~4어절 한국어 훅이다. 이미지 내용을 요약하지 말고, 보자마자 누르고 싶게 만드는 반응형 문구로 써라.`;
 
 export class MissingAnthropicKeyError extends Error {
   constructor() {
@@ -122,7 +152,13 @@ export const generateStoryboardFromImages = async (
         ],
       },
     ],
-    output_config: { format: zodOutputFormat(StoryboardSchema) },
+    output_config: {
+      format: zodOutputFormat(StoryboardSchema),
+      // 이 라우트는 Vercel에서 60초 안에 끝나야 한다(maxDuration). 사진이 10장까지
+      // 늘면 기본값으로는 그 안에 못 끝낼 수 있는데, 6~10장면짜리 대본은 medium으로도
+      // 품질이 떨어지지 않는다. 시간 초과로 아무것도 못 받는 쪽이 훨씬 나쁘다.
+      effort: "medium",
+    },
   });
 
   const parsed = response.parsed_output;
@@ -131,10 +167,15 @@ export const generateStoryboardFromImages = async (
   }
 
   // 장면 수가 이미지 수와 어긋나면 뒤쪽 합성이 전부 틀어지므로 여기서 맞춘다.
-  const scenes = parsed.scenes.slice(0, imageUrls.length).map((scene, i) => ({
+  const picked = parsed.scenes.slice(0, imageUrls.length);
+  const assigned = assignImages(
+    picked.map((scene) => scene.imageIndex),
+    imageUrls.length,
+  );
+  const scenes = picked.map((scene, i) => ({
     ...scene,
     index: i + 1,
-    imageUrl: imageUrls[i],
+    imageUrl: imageUrls[assigned[i] - 1],
   }));
 
   if (scenes.length !== imageUrls.length) {
