@@ -144,7 +144,7 @@ const wordsOf = (text: string): string[] => text.trim().split(/\s+/).filter(Bool
 
 // title이 입력 문장의 (부분이든 전체든) 연속된 어절을 그대로 이어붙인 것인지 검사한다.
 // 완전 일치만 보면 "앞 4단어만 잘라낸" 패턴을 놓치므로 부분 문자열까지 확인한다.
-const looksCopiedFromInput = (title: string, script: string): boolean => {
+export const looksCopiedFromInput = (title: string, script: string): boolean => {
   const titleWords = wordsOf(title);
   if (titleWords.length === 0) {
     return true;

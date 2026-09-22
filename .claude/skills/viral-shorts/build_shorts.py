@@ -704,7 +704,8 @@ def build_video(
 
 def slugify(text: str, max_length: int = 30) -> str:
     slug = re.sub(r"[^\w가-힣-]+", "-", text.strip()).strip("-")
-    return (slug or "shorts")[:max_length]
+    # 자른 뒤에 '-'가 끝에 남을 수 있어(예: 30번째 글자가 구분자) 한 번 더 떼어낸다.
+    return (slug or "shorts")[:max_length].rstrip("-") or "shorts"
 
 
 def format_timeline(scenes: list[dict]) -> str:
