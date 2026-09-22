@@ -81,6 +81,7 @@ Rules for "narration" (Korean, one line per scene):
 【허접해 보이지 않으려면】
 - "아름다운", "환상적인", "신비로운" 같은 형용사를 쓰지 마라. 무슨 일이 벌어졌는지만 말해라. 감상은 보는 사람이 한다.
 - 두루뭉술한 말 대신 숫자와 구체적인 것을 넣어라. "한참" 대신 "세 시간째", "많이" 대신 "네 번".
+- 물건이 등장하면 "뭔가", "이상한 거" 같이 얼버무리지 말고 한 번 이름을 정한 뒤 끝까지 같은 이름으로 불러라. 얼버무리면 장면마다 다른 물건이 그려져서 이야기가 깨진다.
 - 자랑하지 마라. 당황하고, 억울해하고, 실패해라. 일이 잘 풀리는 얘기는 아무도 안 본다.
 
 【말이 이어지게】 나레이션 전체가 한 사람이 쉬지 않고 말하는 한 덩어리로 들려야 한다. 단 이어붙이는 방법을 줄마다 바꿔라. 같은 방법을 반복하면 억지로 갖다 붙인 티가 난다. 아래를 섞어 써라:
@@ -106,6 +107,7 @@ Rules for "narration" (Korean, one line per scene):
 
 Rules for "imagePrompt" (English, one per scene):
 - Describe ONLY what is happening in that scene: the action, the Jeju location, the time of day, the light, the camera angle. Do NOT describe the character's appearance, clothes, or hair — that is added separately and must not be repeated.
+- 앞 장면에 나온 물건이 이 장면에도 나온다면, 그 물건을 새로 상상하지 말고 propSheet에 적은 그대로 두어라. 장면마다 다른 물건이 나오면 이야기가 거기서 끊긴다.
 - Make the single most concrete visual of that scene unmistakable. If something magical or impossible is happening, the image must literally show it happening, not merely hint at it.
 - Ground it in real Jeju scenery (한라산, 백록담, 성산일출봉, 주상절리, 돌하르방, 검은 현무암 해변, 유채꽈밭, 감귤밭, 해녀, 오름) where it fits the story.
 
@@ -114,11 +116,12 @@ Rules for "sfx": pick exactly one cue name per scene from this fixed list — ${
 Rules for "kenBurns": "in" (slow zoom in, for tension/focus) or "out" (slow zoom out, for reveals/scale). Alternate so consecutive scenes don't feel identical.
 
 Also produce:
+- "propSheet": 이야기가 따라가는 핵심 물건 하나의 생김새를, 장면 어디에 나와도 같은 물건으로 알아볼 수 있을 만큼 구체적인 영어 한 줄로 적어라. 색, 재질, 크기, 형태, 표면의 특징을 넣어라. (예: "a fist-sized smooth black volcanic stone with a glowing amber crack running across it") 이야기에 물건이 없으면 빈 문자열.
 - "thumbnailCopy": a 3 to 4 word Korean thumbnail headline in the same B-grade voice. A reaction/hook, never a summary, and it must not copy words from the topic.
 - "bgmMood": exactly one of ${BGM_MOODS.join(", ")}.
 
 Respond with ONLY a compact JSON object in exactly this shape, no markdown fences, no explanation:
-{"thumbnailCopy":"...","bgmMood":"...","scenes":[{"index":1,"narration":"...","imagePrompt":"...","sfx":"...","kenBurns":"in"}, ... ${SCENE_COUNT} scenes total]}
+{"thumbnailCopy":"...","propSheet":"...","bgmMood":"...","scenes":[{"index":1,"narration":"...","imagePrompt":"...","sfx":"...","kenBurns":"in"}, ... ${SCENE_COUNT} scenes total]}
 
 The character description that will be appended to every scene (do not repeat it yourself): ${character}`;
 
@@ -148,8 +151,13 @@ type RawScene = {
 const buildScenePrompts = (
   scenePrompt: string,
   character: string,
+  prop: string,
 ): { imagePrompt: string; midjourneyPrompt: string } => {
-  const full = `${scenePrompt.trim()} Featuring ${character}. ${SHARED_STYLE_SHEET}.`;
+  // 이야기가 한 물건을 따라가는데 장면마다 다른 물건이 그려지면, 1~2장면에서 잡은
+  // 호기심이 3장면에서 그대로 깨진다(반짝이던 것이 갑자기 나침반이 되는 식).
+  // 외모 시트로 인물을 붙잡아둔 것과 똑같이, 그 물건의 생김새도 장면마다 붙인다.
+  const propLine = prop ? ` The object in the story is always ${prop}.` : "";
+  const full = `${scenePrompt.trim()} Featuring ${character}.${propLine} ${SHARED_STYLE_SHEET}.`;
   return {
     imagePrompt: full,
     // Midjourney는 비율을 파라미터로 받는다. Flux/DALL-E용은 위의 imagePrompt를 쓰면 된다.
@@ -168,6 +176,7 @@ const parseStoryboard = (
 
   let parsed: {
     thumbnailCopy?: unknown;
+    propSheet?: unknown;
     bgmMood?: unknown;
     scenes?: unknown;
   };
@@ -183,6 +192,9 @@ const parseStoryboard = (
   }
 
   const scenes: StoryboardScene[] = [];
+  const propSheet =
+    typeof parsed.propSheet === "string" ? parsed.propSheet.trim() : "";
+
   for (const [position, rawScene] of rawScenes.entries()) {
     const narration =
       typeof rawScene.narration === "string" ? rawScene.narration.trim() : "";
@@ -195,7 +207,7 @@ const parseStoryboard = (
     scenes.push({
       index: position + 1,
       narration,
-      ...buildScenePrompts(scenePrompt, character),
+      ...buildScenePrompts(scenePrompt, character, propSheet),
       sfx: isSfxCue(rawScene.sfx) ? rawScene.sfx : "none",
       kenBurns: rawScene.kenBurns === "out" ? "out" : "in",
     });
