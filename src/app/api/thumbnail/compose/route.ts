@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     }
 
     const backgroundBytes = Buffer.from(await upstream.arrayBuffer());
-    const pngBuffer = composeThumbnail({ backgroundBytes, titleText: title });
+    const pngBuffer = await composeThumbnail({ backgroundBytes, titleText: title });
 
     return new NextResponse(new Uint8Array(pngBuffer), {
       headers: {

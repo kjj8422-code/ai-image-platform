@@ -2,7 +2,8 @@ import path from "node:path";
 import {
   createCanvas,
   GlobalFonts,
-  Image,
+  loadImage,
+  type Image,
   type SKRSContext2D,
 } from "@napi-rs/canvas";
 
@@ -38,6 +39,10 @@ let fontsRegistered = false;
 
 // 변수 폰트(weight 축 포함) 하나만 번들에 넣고, 그리기 시점에 font-weight
 // 숫자로 원하는 굵기를 골라 쓴다 (900 = Black).
+//
+// 등록 실패를 조용히 넘기지 않는다 — 예전에 이 부분을 무시했을 때, 서버리스
+// 배포 환경에서 폰트 파일을 못 찾았는데도 요청 자체는 "성공"해버려서 한글이
+// 전부 네모(tofu)로 깨진 결과물이 그대로 저장된 적이 있다.
 const registerFonts = (): void => {
   if (fontsRegistered) {
     return;
@@ -46,7 +51,13 @@ const registerFonts = (): void => {
     process.cwd(),
     "public/fonts/NotoSansKR-Variable.ttf",
   );
-  GlobalFonts.registerFromPath(fontPath, FONT_FAMILY);
+  const registered = GlobalFonts.registerFromPath(fontPath, FONT_FAMILY);
+  if (!registered) {
+    throw new Error(
+      `한글 폰트를 등록하지 못했습니다 (경로: ${fontPath}). 배포 환경에 폰트 파일이 ` +
+        "포함되어 있는지 next.config.ts의 outputFileTracingIncludes 설정을 확인하세요.",
+    );
+  }
   fontsRegistered = true;
 };
 
@@ -178,14 +189,18 @@ export type ComposeThumbnailOptions = {
 };
 
 // 배경 이미지(바이트) + 문구를 합쳐 최종 9:16 썸네일 PNG 버퍼를 반환한다.
-export const composeThumbnail = ({
+//
+// 배경은 반드시 loadImage()로 디코딩해야 한다 — `new Image(); image.src = buffer`
+// 방식은 WEBP 입력에서 width/height는 채워지면서도 실제 픽셀 디코딩은 조용히
+// 실패해, 완전히 빈(투명) 이미지가 그려지는 문제를 실제로 겪었다(Flux 출력은
+// 기본이 WEBP라 매번 걸리는 문제였음).
+export const composeThumbnail = async ({
   backgroundBytes,
   titleText,
-}: ComposeThumbnailOptions): Buffer => {
+}: ComposeThumbnailOptions): Promise<Buffer> => {
   registerFonts();
 
-  const image = new Image();
-  image.src = backgroundBytes;
+  const image: Image = await loadImage(backgroundBytes);
 
   const canvas = createCanvas(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT);
   const ctx = canvas.getContext("2d");
