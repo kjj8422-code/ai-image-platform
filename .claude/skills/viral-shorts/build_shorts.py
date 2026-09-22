@@ -323,7 +323,17 @@ def _text_clip(
             stroke_width=stroke_width,
             method="caption",
             size=(TEXT_MAX_WIDTH, None),
-            margin=(stroke_width * 2, stroke_width * 2),
+            # caption 방식의 높이 계산은 위쪽 여백만 잡아주고 아래쪽은 잡아주지
+            # 않는다. 실제로 재보면 한글 자막의 잉크가 이미지 맨 아래 픽셀까지
+            # 닿아서(아래 여백 0px) 검은 테두리와 받침 아래가 깎여 나갔다.
+            # 그래서 4-tuple로 아래 여백만 따로 키운다. stroke*6이면 어떤 단어든
+            # 30px 이상 남는 것을 측정으로 확인했다.
+            margin=(
+                stroke_width * 2,
+                stroke_width * 2,
+                stroke_width * 2,
+                stroke_width * 6,
+            ),
         )
         if clip.h <= max_height or size <= min_font_size:
             return clip
