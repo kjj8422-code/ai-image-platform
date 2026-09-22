@@ -125,6 +125,17 @@ NARRATION_JOINER = ", "
 SENTENCE_ENDINGS = ("!", "?", ".", "…")
 KEN_BURNS_ZOOM = 1.12
 BGM_GAIN = 10 ** (-15 / 20)  # 요구사항: BGM -15dB 감쇄
+
+# 기계 음성은 여섯 줄을 전부 같은 세기로 읽는다. 사람이 썰을 풀 때는 훅에서 들뜨고,
+# 반전에서 터뜨리고, 마지막은 툭 떨어뜨리는데 그 강약이 통째로 없다. 읽힌 뒤에
+# 대목별로 음량을 조금씩 달리해서 그 곡선을 입힌다. ±2dB 남짓이라 "소리가 커졌다"가
+# 아니라 "여기가 중요하구나"로 들리는 정도다.
+NARRATION_HOOK_GAIN = 10 ** (2.0 / 20)
+NARRATION_TWIST_GAIN = 10 ** (2.5 / 20)
+NARRATION_CLOSE_GAIN = 10 ** (-1.5 / 20)
+# 반전 장면은 대본이 고른 효과음으로 알아낸다 — 스토리보드가 이미 그 자리에 이
+# 큐들을 넣게 되어 있어서, 장면 번호로 넘겨짚는 것보다 정확하다.
+TWIST_CUES = {"reveal", "laugh", "boom"}
 THUMBNAIL_COPY_SECONDS = 1.6
 
 
@@ -569,8 +580,29 @@ def build_audio(
     from moviepy import AudioFileClip, CompositeAudioClip, afx
 
     # 나레이션은 통째로 한 트랙이다. 장면마다 잘라 붙이면 이어 읽힌 억양이
-    # 이음매에서 다시 끊기므로 자르지 않는다.
-    tracks = [AudioFileClip(str(narration_path)).with_start(0)]
+    # 이음매에서 다시 끊기므로 자르지 않는다. 대신 구간별 음량만 얹는다.
+    narration = AudioFileClip(str(narration_path))
+    shaping = []
+    last_index = len(scenes) - 1
+    for i, scene in enumerate(scenes):
+        if i == 0:
+            factor = NARRATION_HOOK_GAIN
+        elif i == last_index:
+            factor = NARRATION_CLOSE_GAIN
+        elif scene.get("sfx") in TWIST_CUES:
+            factor = NARRATION_TWIST_GAIN
+        else:
+            continue
+        shaping.append(
+            afx.MultiplyVolume(
+                factor,
+                start_time=scene["start"],
+                end_time=scene["start"] + scene["duration"],
+            )
+        )
+    if shaping:
+        narration = narration.with_effects(shaping)
+    tracks = [narration.with_start(0)]
 
     for scene in scenes:
         cue = scene.get("sfx", "none")
