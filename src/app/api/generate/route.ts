@@ -16,16 +16,27 @@ const IMAGES_PER_REQUEST = 4;
 // 속도 제한에 걸렸을 때의 재시도 대기 시간까지 합치면 기본 10초로는 부족할 수 있음).
 export const maxDuration = 60;
 
+// Flux 1.1 Pro가 지원하는 종횡비 중 이 서비스에서 실제로 쓰는 값만 화이트리스트로
+// 제한한다 (클라이언트가 보낸 임의 문자열을 그대로 Replicate에 넘기지 않기 위한 안전장치).
+const ALLOWED_ASPECT_RATIOS = ["1:1", "9:16", "16:9", "4:5", "3:4"] as const;
+type AspectRatio = (typeof ALLOWED_ASPECT_RATIOS)[number];
+
+const isAspectRatio = (value: unknown): value is AspectRatio =>
+  typeof value === "string" &&
+  (ALLOWED_ASPECT_RATIOS as readonly string[]).includes(value);
+
 // Flux 1.1 Pro로 이미지 1장을 생성한다. 여러 장을 만들 때 매번 같은 결과가
 // 나오지 않도록 매 호출마다 랜덤 시드를 지정한다.
 const generateOneImage = async (
   replicate: Replicate,
   prompt: string,
+  aspectRatio: AspectRatio,
 ): Promise<string> => {
   const output = await withRetryOn429(() =>
     replicate.run("black-forest-labs/flux-1.1-pro", {
       input: {
         prompt,
+        aspect_ratio: aspectRatio,
         seed: Math.floor(Math.random() * 1_000_000),
       },
     }),
@@ -51,6 +62,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : "";
+    const aspectRatio = isAspectRatio(body?.aspectRatio)
+      ? body.aspectRatio
+      : "1:1";
 
     if (!prompt) {
       return NextResponse.json(
@@ -69,7 +83,9 @@ export async function POST(request: NextRequest) {
     // 하나씩 순차적으로 생성한다.
     const imageUrls: string[] = [];
     for (let i = 0; i < IMAGES_PER_REQUEST; i += 1) {
-      imageUrls.push(await generateOneImage(replicate, enhancedPrompt));
+      imageUrls.push(
+        await generateOneImage(replicate, enhancedPrompt, aspectRatio),
+      );
     }
 
     return NextResponse.json({ imageUrls, enhancedPrompt });

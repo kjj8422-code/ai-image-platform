@@ -80,3 +80,56 @@ export const enhancePrompt = async (
     return originalPrompt;
   }
 };
+
+export type ThumbnailCopySuggestion = {
+  title: string;
+  backgroundPrompt: string;
+};
+
+// 쇼츠/릴스 썸네일 전용: 한 줄 대본/키워드 하나로 (1) 3~4단어 고CTR 한글 문구와
+// (2) 배경 이미지 생성용 영문 프롬프트를 한 번의 호출로 함께 뽑아낸다.
+// 배경 프롬프트에는 "얼굴/주요 피사체를 하단 25%·우측 15% 세이프존 밖에 배치하라"는
+// 지침을 항상 포함시켜, 쇼츠 UI(제목/버튼)에 가려지지 않는 구도를 유도한다.
+const THUMBNAIL_COPY_INSTRUCTION = `You are a YouTube Shorts / Instagram Reels thumbnail copywriter and prompt engineer.
+Given a short script or keyword (possibly in Korean), produce two things:
+1. "title": a punchy, high-CTR Korean headline of exactly 3 to 4 words (a short phrase, not a full sentence) meant as bold overlay text on a 9:16 thumbnail. Favor curiosity/urgency hooks common in Korean shorts titles.
+2. "backgroundPrompt": a single vivid, detailed ENGLISH prompt describing a photographic background scene for this thumbnail (no on-image text, no typography, no captions). Include lighting, composition and mood, and explicitly require that the main subject/face be composed in the upper two-thirds of the frame, roughly centered-left, keeping the bottom quarter and far-right edge of the frame relatively open and uncluttered.
+Respond with ONLY a compact JSON object in exactly this shape, no markdown fences, no explanation: {"title": "...", "backgroundPrompt": "..."}`;
+
+export const suggestThumbnailCopy = async (
+  replicate: Replicate,
+  scriptOrKeyword: string,
+): Promise<ThumbnailCopySuggestion> => {
+  try {
+    const output = await withRetryOn429(() =>
+      replicate.run("anthropic/claude-4.5-haiku", {
+        input: {
+          prompt: `${THUMBNAIL_COPY_INSTRUCTION}\n\nInput: ${scriptOrKeyword}`,
+          max_tokens: 512,
+        },
+      }),
+    );
+
+    const raw = extractText(output);
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    const parsed = JSON.parse(
+      jsonMatch ? jsonMatch[0] : raw,
+    ) as Partial<ThumbnailCopySuggestion>;
+
+    if (
+      typeof parsed.title === "string" &&
+      typeof parsed.backgroundPrompt === "string"
+    ) {
+      return {
+        title: parsed.title.trim(),
+        backgroundPrompt: parsed.backgroundPrompt.trim(),
+      };
+    }
+    throw new Error("응답 형식이 예상과 다릅니다.");
+  } catch (err) {
+    console.error("썸네일 문구 추천 실패, 기본값으로 대체:", err);
+    const fallbackTitle = scriptOrKeyword.split(/\s+/).slice(0, 4).join(" ");
+    const fallbackPrompt = await enhancePrompt(replicate, scriptOrKeyword);
+    return { title: fallbackTitle, backgroundPrompt: fallbackPrompt };
+  }
+};

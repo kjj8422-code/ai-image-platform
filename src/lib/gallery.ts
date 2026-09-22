@@ -1,6 +1,8 @@
 import { randomUUID } from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
+export type GalleryImageSource = "generated" | "remix" | "inpaint" | "thumbnail";
+
 export type GalleryImage = {
   id: string;
   imageUrl: string;
@@ -31,7 +33,7 @@ export const saveImageToGallery = async (
   userId: string,
   sourceImageUrl: string,
   prompt: string,
-  source: "generated" | "remix",
+  source: GalleryImageSource,
 ): Promise<GalleryImage> => {
   const response = await fetch(sourceImageUrl);
   if (!response.ok) {
@@ -52,6 +54,53 @@ export const saveImageToGallery = async (
   const { error: uploadError } = await supabaseAdmin.storage
     .from("gallery")
     .upload(path, Buffer.from(bytes), { contentType, upsert: false });
+  if (uploadError) {
+    throw uploadError;
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabaseAdmin.storage.from("gallery").getPublicUrl(path);
+
+  const { data, error } = await supabaseAdmin
+    .from("gallery_images")
+    .insert({ user_id: userId, image_url: publicUrl, prompt, source })
+    .select("id, image_url, prompt, source, created_at")
+    .single();
+  if (error) {
+    throw error;
+  }
+
+  return toGalleryImage(data as GalleryImageRow);
+};
+
+// 원격 URL이 아니라 브라우저 <canvas>에서 만든 "data:image/png;base64,..." 같은
+// 데이터 URL을 그대로 Supabase Storage에 업로드한다 (쇼츠 썸네일처럼 클라이언트에서
+// 합성이 끝난 최종 이미지를 저장할 때 사용).
+export const saveDataUrlToGallery = async (
+  userId: string,
+  dataUrl: string,
+  prompt: string,
+  source: GalleryImageSource,
+): Promise<GalleryImage> => {
+  const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+  if (!match) {
+    throw new Error("이미지 데이터 형식이 올바르지 않습니다.");
+  }
+  const [, contentType, base64] = match;
+  const bytes = Buffer.from(base64, "base64");
+
+  const extension = contentType.includes("webp")
+    ? "webp"
+    : contentType.includes("jpeg")
+      ? "jpg"
+      : "png";
+  const path = `${userId}/${randomUUID()}.${extension}`;
+  const supabaseAdmin = getSupabaseAdmin();
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from("gallery")
+    .upload(path, bytes, { contentType, upsert: false });
   if (uploadError) {
     throw uploadError;
   }
