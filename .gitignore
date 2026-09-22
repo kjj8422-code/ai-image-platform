@@ -32,6 +32,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# 단, 실제 값이 없는 스킬 설정 템플릿은 커밋되어야 한다 (.env* 패턴에 걸려 무시되던 버그 수정)
+!.claude/skills/*/.env.example
 
 # vercel
 .vercel
@@ -39,3 +41,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python
+__pycache__/
+*.pyc

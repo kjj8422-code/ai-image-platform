@@ -8,12 +8,26 @@ export default function Home() {
         AI 이미지 생성 도구
       </h1>
       <AuthStatus />
-      <Link
-        href="/generate"
-        className="rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-      >
-        이미지 생성하러 가기
-      </Link>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <Link
+          href="/generate"
+          className="rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+        >
+          이미지 생성하러 가기
+        </Link>
+        <Link
+          href="/thumbnail"
+          className="rounded-full border border-zinc-300 px-5 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          쇼츠 썸네일 만들기
+        </Link>
+        <Link
+          href="/shorts"
+          className="rounded-full border border-zinc-300 px-5 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          이미지로 쇼츠 만들기
+        </Link>
+      </div>
     </div>
   );
 }
