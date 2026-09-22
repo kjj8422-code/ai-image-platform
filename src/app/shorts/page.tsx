@@ -33,13 +33,103 @@ const STEP_LABEL: Record<Step, string> = {
   error: "",
 };
 
-const readAsDataUrl = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error(`${file.name} 을(를) 읽지 못했습니다.`));
-    reader.readAsDataURL(file);
-  });
+// 업로드 전에 브라우저에서 사진을 줄인다. 폰 사진 한 장은 3~5MB이고 base64로
+// 바꾸면 거기서 1.33배가 더 붙어서, 원본 6장을 한 번에 보내면 Vercel의 요청 본문
+// 상한(4.5MB)을 훌쩍 넘긴다. 그러면 서버는 JSON이 아닌 "Request Entity Too Large"
+// 평문을 돌려주고, 화면에는 원인을 알 수 없는 JSON 파싱 오류만 남는다.
+// 줄여 보내면 그 한계를 피하는 동시에 Claude가 읽는 픽셀 수도 줄어 비전 토큰
+// 비용까지 같이 내려간다. 쇼츠는 세로 1080 기준이라 1280px이면 화질 손해가 없다.
+const MAX_EDGE = 1280;
+const JPEG_QUALITY = 0.82;
+
+type LoadedImage = {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  release: () => void;
+};
+
+// 폰 사진은 회전 정보가 EXIF에만 들어 있어서, 그냥 그리면 눕거나 뒤집힌 채로 올라간다.
+const loadImage = async (file: File): Promise<LoadedImage> => {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file, {
+        imageOrientation: "from-image",
+      });
+      return {
+        source: bitmap,
+        width: bitmap.width,
+        height: bitmap.height,
+        release: () => bitmap.close(),
+      };
+    } catch {
+      // 이 옵션을 거부하는 브라우저가 있다. 아래 <img> 경로로 넘어간다.
+    }
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () =>
+        reject(new Error(`${file.name} 을(를) 읽지 못했습니다.`));
+      el.src = objectUrl;
+    });
+    return {
+      source: img,
+      width: img.naturalWidth,
+      height: img.naturalHeight,
+      release: () => URL.revokeObjectURL(objectUrl),
+    };
+  } catch (err) {
+    URL.revokeObjectURL(objectUrl);
+    throw err;
+  }
+};
+
+const downscaleToDataUrl = async (file: File): Promise<string> => {
+  const image = await loadImage(file);
+  try {
+    const scale = Math.min(1, MAX_EDGE / Math.max(image.width, image.height));
+    const width = Math.max(1, Math.round(image.width * scale));
+    const height = Math.max(1, Math.round(image.height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      throw new Error(`${file.name} 을(를) 변환하지 못했습니다.`);
+    }
+    ctx.drawImage(image.source, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+  } finally {
+    image.release();
+  }
+};
+
+// 본문 초과(413)나 시간 초과(504)처럼 우리 코드에 닿기 전에 끊기는 경우, 플랫폼은
+// JSON이 아닌 평문을 돌려준다. 그대로 .json()을 부르면 진짜 원인이 파싱 오류에
+// 가려지므로, 먼저 본문을 읽고 사람이 읽을 수 있는 말로 바꿔준다.
+const readJson = async <T,>(response: Response, fallback: string): Promise<T> => {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    if (response.status === 413) {
+      throw new Error(
+        "이미지 용량이 너무 큽니다. 장수를 줄이거나 더 작은 사진으로 다시 시도해주세요.",
+      );
+    }
+    if (response.status === 504) {
+      throw new Error(
+        "서버가 제한 시간 안에 응답하지 못했습니다. 이미지 장수를 줄여 다시 시도해주세요.",
+      );
+    }
+    throw new Error(`${fallback} (서버 응답 코드 ${response.status})`);
+  }
+};
 
 export default function ShortsPage() {
   const { user, loading: userLoading } = useSupabaseUser();
@@ -49,6 +139,7 @@ export default function ShortsPage() {
   const [isDragging, setIsDragging] = useState(false);
 
   const [step, setStep] = useState<Step>("idle");
+  const [uploadedCount, setUploadedCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
   const [storyboard, setStoryboard] = useState<Storyboard | null>(null);
   const [thumbnailUrl, setThumbnailUrl] = useState("");
@@ -113,23 +204,34 @@ export default function ShortsPage() {
 
   const handleGenerate = async () => {
     setErrorMessage("");
+    setUploadedCount(0);
     setStoryboard(null);
     setThumbnailUrl("");
     setProjectUrl("");
 
     try {
       setStep("uploading");
-      const dataUrls = await Promise.all(files.map(readAsDataUrl));
-      const uploadResponse = await authedFetch("/api/shorts/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageDataUrls: dataUrls }),
-      });
-      const uploadResult = await uploadResponse.json();
-      if (!uploadResponse.ok) {
-        throw new Error(uploadResult?.error ?? "업로드에 실패했습니다.");
+      // 한 장씩 따로 올린다. 한 번에 묶어 보내면 장수가 늘어날수록 본문이 상한을
+      // 넘기고, 어느 사진에서 실패했는지도 알 수 없다.
+      const imageUrls: string[] = [];
+      for (const [index, file] of files.entries()) {
+        setUploadedCount(index);
+        const dataUrl = await downscaleToDataUrl(file);
+        const uploadResponse = await authedFetch("/api/shorts/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageDataUrls: [dataUrl] }),
+        });
+        const uploadResult = await readJson<{
+          imageUrls?: string[];
+          error?: string;
+        }>(uploadResponse, "업로드에 실패했습니다.");
+        if (!uploadResponse.ok || !uploadResult.imageUrls) {
+          throw new Error(uploadResult.error ?? "업로드에 실패했습니다.");
+        }
+        imageUrls.push(...uploadResult.imageUrls);
       }
-      const imageUrls: string[] = uploadResult.imageUrls;
+      setUploadedCount(files.length);
 
       setStep("analyzing");
       const analyzeResponse = await authedFetch("/api/shorts/from-images", {
@@ -137,9 +239,12 @@ export default function ShortsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageUrls }),
       });
-      const board = await analyzeResponse.json();
+      const board = await readJson<Storyboard & { error?: string }>(
+        analyzeResponse,
+        "시나리오 생성에 실패했습니다.",
+      );
       if (!analyzeResponse.ok) {
-        throw new Error(board?.error ?? "시나리오 생성에 실패했습니다.");
+        throw new Error(board.error ?? "시나리오 생성에 실패했습니다.");
       }
       setStoryboard(board);
 
@@ -197,6 +302,10 @@ export default function ShortsPage() {
 
   const busy = step === "uploading" || step === "analyzing" || step === "composing";
   const canGenerate = files.length >= MIN_IMAGES && !busy;
+  const busyLabel =
+    step === "uploading"
+      ? `이미지 업로드 중... (${Math.min(uploadedCount + 1, files.length)}/${files.length})`
+      : STEP_LABEL[step];
 
   return (
     <div className="flex min-h-screen flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
@@ -282,7 +391,7 @@ export default function ShortsPage() {
           disabled={!canGenerate}
           className="self-start rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
         >
-          {busy ? STEP_LABEL[step] : "바이럴 쇼츠 생성"}
+          {busy ? busyLabel : "바이럴 쇼츠 생성"}
         </button>
         {files.length > 0 && files.length < MIN_IMAGES && (
           <p className="text-xs text-zinc-400 dark:text-zinc-500">
