@@ -102,6 +102,21 @@ THUMBNAIL_COPY_MAX_HEIGHT = 430
 SCENE_TAIL_PADDING = 0.08
 # 쇼츠 나레이션은 일상 대화보다 조금 빨라야 넘기지 않는다.
 NARRATION_RATE = "+12%"
+
+# 한 번 호출에 한 가지 톤으로만 읽히기 때문에, 영상마다 같은 목소리·같은 높이로
+# 나오면 여러 편을 이어 보는 사람에게 전부 같은 영상처럼 들린다. 이야기 분위기에
+# 맞춰 높이와 속도를 바꿔 편마다 결이 달라지게 한다.
+VOICE_STYLES = {
+    "mystery": {"voice": DEFAULT_VOICE, "rate": "+8%", "pitch": "-12Hz"},
+    "epic": {"voice": "ko-KR-InJoonNeural", "rate": "+10%", "pitch": "-8Hz"},
+    "playful": {"voice": DEFAULT_VOICE, "rate": "+20%", "pitch": "+18Hz"},
+    "dreamy": {"voice": DEFAULT_VOICE, "rate": "+6%", "pitch": "+6Hz"},
+}
+DEFAULT_VOICE_STYLE = {
+    "voice": DEFAULT_VOICE,
+    "rate": NARRATION_RATE,
+    "pitch": "+0Hz",
+}
 # 장면 사이에는 쉼표만 넣는다. 마침표로 끊으면 TTS가 끝을 내려 읽어 단절감이 생긴다.
 NARRATION_JOINER = ", "
 KEN_BURNS_ZOOM = 1.12
@@ -273,10 +288,14 @@ def download_image(config: dict, token: str, url: str, dest: Path) -> Path:
 # TTS (edge-tts) — 단어별 타이밍까지 함께 받는다
 # --------------------------------------------------------------------------
 
-async def _synthesize(text: str, voice: str, dest: Path, rate: str) -> list[dict]:
+async def _synthesize(
+    text: str, voice: str, dest: Path, rate: str, pitch: str
+) -> list[dict]:
     import edge_tts
 
-    communicate = edge_tts.Communicate(text, voice, rate=rate, boundary="WordBoundary")
+    communicate = edge_tts.Communicate(
+        text, voice, rate=rate, pitch=pitch, boundary="WordBoundary"
+    )
     words: list[dict] = []
     with open(dest, "wb") as handle:
         async for chunk in communicate.stream():
@@ -294,10 +313,14 @@ async def _synthesize(text: str, voice: str, dest: Path, rate: str) -> list[dict
 
 
 def synthesize_narration(
-    text: str, voice: str, dest: Path, rate: str = NARRATION_RATE
+    text: str,
+    voice: str,
+    dest: Path,
+    rate: str = NARRATION_RATE,
+    pitch: str = "+0Hz",
 ) -> list[dict]:
     """나레이션을 mp3로 만들고 단어별 (시작초, 길이) 목록을 돌려준다."""
-    return asyncio.run(_synthesize(text, voice, dest, rate))
+    return asyncio.run(_synthesize(text, voice, dest, rate, pitch))
 
 
 def _ink(text: str) -> str:
@@ -306,7 +329,9 @@ def _ink(text: str) -> str:
 
 
 def synthesize_all_narrations(
-    narrations: list[str], voice: str, dest: Path, rate: str = NARRATION_RATE
+    narrations: list[str],
+    dest: Path,
+    style: dict | None = None,
 ) -> list[list[dict]]:
     """전체 나레이션을 한 번에 읽히고, 단어 타이밍으로 장면 경계를 되찾는다.
 
@@ -314,8 +339,20 @@ def synthesize_all_narrations(
     클립마다 앞뒤 무음까지 붙어서 장면 사이가 뚝뚝 끊긴다. 한 번에 읽히면 억양이
     이어져 한 사람이 쭉 말하는 것처럼 들린다.
     """
+    style = style or DEFAULT_VOICE_STYLE
     joined = NARRATION_JOINER.join(n.strip() for n in narrations)
-    words = synthesize_narration(joined, voice, dest, rate)
+    try:
+        words = synthesize_narration(
+            joined, style["voice"], dest, style["rate"], style["pitch"]
+        )
+    except Exception as err:  # 목소리 이름이 바뀌어도 영상은 나와야 한다
+        fallback = DEFAULT_VOICE_STYLE["voice"]
+        if style["voice"] == fallback:
+            raise
+        print(f"    ({style['voice']} 를 쓸 수 없어 {fallback} 로 대신합니다: {err})")
+        words = synthesize_narration(
+            joined, fallback, dest, style["rate"], style["pitch"]
+        )
 
     # edge-tts가 단어를 어떻게 쪼개 돌려주든, 읽히는 글자 수를 세어 맞추면
     # 장면 경계가 어긋나지 않는다(토큰 개수로 맞추면 구두점 때문에 밀린다).
@@ -622,7 +659,11 @@ def parse_args() -> argparse.Namespace:
         "(업로드한 이미지로 만든 시나리오를 그대로 영상으로 만든다)",
     )
     parser.add_argument("--out-dir", default="out", help="결과 저장 폴더 (기본: ./out)")
-    parser.add_argument("--voice", default=DEFAULT_VOICE, help="edge-tts 음성 이름")
+    parser.add_argument(
+        "--voice",
+        default=None,
+        help="edge-tts 음성 이름 (기본: 이야기 분위기에 맞춰 자동 선택)",
+    )
     parser.add_argument(
         "--skip-video",
         action="store_true",
@@ -703,9 +744,16 @@ def main() -> None:
         print("4) 나레이션 재사용")
         per_scene_words = json.loads(words_path.read_text(encoding="utf-8"))
     else:
-        print(f"4) 나레이션 {len(prepared)}줄을 한 번에 합성하는 중...")
+        mood = storyboard.get("bgmMood", "playful")
+        style = dict(VOICE_STYLES.get(mood, DEFAULT_VOICE_STYLE))
+        if args.voice:
+            style["voice"] = args.voice
+        print(
+            f"4) 나레이션 {len(prepared)}줄을 한 번에 합성하는 중... "
+            f"({mood} 톤 · {style['voice']} · 속도 {style['rate']} · 높이 {style['pitch']})"
+        )
         per_scene_words = synthesize_all_narrations(
-            [s["narration"] for s in prepared], args.voice, narration_path
+            [s["narration"] for s in prepared], narration_path, style
         )
         words_path.write_text(
             json.dumps(per_scene_words, ensure_ascii=False), encoding="utf-8"
