@@ -121,6 +121,40 @@ export const saveDataUrlToGallery = async (
   return toGalleryImage(data as GalleryImageRow);
 };
 
+// 쇼츠 소재로 올린 이미지는 "작품"이 아니라 재료라서 갤러리 목록에는 넣지 않고
+// 스토리지에만 올린다(DB 스키마를 건드리지 않아도 되고, 갤러리도 안 지저분해진다).
+export const uploadSourceImage = async (
+  userId: string,
+  dataUrl: string,
+): Promise<string> => {
+  const match = dataUrl.match(/^data:(image\/\w+);base64,(.+)$/);
+  if (!match) {
+    throw new Error("이미지 데이터 형식이 올바르지 않습니다.");
+  }
+  const [, contentType, base64] = match;
+  const bytes = Buffer.from(base64, "base64");
+
+  const extension = contentType.includes("webp")
+    ? "webp"
+    : contentType.includes("jpeg")
+      ? "jpg"
+      : "png";
+  const path = `${userId}/sources/${randomUUID()}.${extension}`;
+  const supabaseAdmin = getSupabaseAdmin();
+
+  const { error: uploadError } = await supabaseAdmin.storage
+    .from("gallery")
+    .upload(path, bytes, { contentType, upsert: false });
+  if (uploadError) {
+    throw uploadError;
+  }
+
+  const {
+    data: { publicUrl },
+  } = supabaseAdmin.storage.from("gallery").getPublicUrl(path);
+  return publicUrl;
+};
+
 export const listGalleryImages = async (
   userId: string,
 ): Promise<GalleryImage[]> => {

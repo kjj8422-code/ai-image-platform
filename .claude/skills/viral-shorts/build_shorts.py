@@ -491,6 +491,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="이미 만든 storyboard.json 경로 (대본 생성을 건너뛰고 재사용)",
     )
+    parser.add_argument(
+        "--project",
+        default=None,
+        help="웹 화면에서 내려받은 shorts-project.json 경로 "
+        "(업로드한 이미지로 만든 시나리오를 그대로 영상으로 만든다)",
+    )
     parser.add_argument("--out-dir", default="out", help="결과 저장 폴더 (기본: ./out)")
     parser.add_argument("--voice", default=DEFAULT_VOICE, help="edge-tts 음성 이름")
     parser.add_argument(
@@ -508,8 +514,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if not args.topic and not args.storyboard:
-        sys.exit("오류: --topic 또는 --storyboard 중 하나는 필요합니다.")
+    if not args.topic and not args.storyboard and not args.project:
+        sys.exit("오류: --topic, --storyboard, --project 중 하나는 필요합니다.")
     if not FONT_PATH.exists():
         sys.exit(f"오류: 자막용 한글 폰트를 찾을 수 없습니다 -> {FONT_PATH}")
 
@@ -517,7 +523,10 @@ def main() -> None:
     print("1) 로그인 중...")
     token = sign_in(config)
 
-    if args.storyboard:
+    if args.project:
+        storyboard = json.loads(Path(args.project).read_text(encoding="utf-8"))
+        print(f"2) 웹에서 만든 프로젝트 사용: {args.project}")
+    elif args.storyboard:
         storyboard = json.loads(Path(args.storyboard).read_text(encoding="utf-8"))
         print(f"2) 기존 스토리보드 사용: {args.storyboard}")
     else:
@@ -549,6 +558,11 @@ def main() -> None:
         # 실제로 비용이 나가므로, 자막·효과음만 손보려고 재실행할 때 또 낼 이유가 없다.
         if image_path.exists() and not args.regenerate:
             print(f"3-{index}) 장면 {index} 이미지 재사용")
+        elif raw_scene.get("imageUrl"):
+            # 웹에서 올린 이미지는 이미 있으니 받아오기만 하면 된다(생성 비용 없음).
+            print(f"3-{index}) 장면 {index} 업로드 이미지 내려받는 중...")
+            download_image(config, token, raw_scene["imageUrl"], raw_path)
+            fit_to_frame(raw_path, image_path)
         else:
             print(f"3-{index}) 장면 {index} 이미지 생성 중...")
             download_image(
