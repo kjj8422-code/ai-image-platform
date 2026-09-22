@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
@@ -143,7 +143,9 @@ export default function ShortsPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [storyboard, setStoryboard] = useState<Storyboard | null>(null);
   const [thumbnailUrl, setThumbnailUrl] = useState("");
-  const [projectUrl, setProjectUrl] = useState("");
+  // 올린 순서 그대로의 저장소 주소. 장면이 어느 사진을 쓰는지 되짚고, 다른 사진으로
+  // 바꿔 끼우는 데 쓴다.
+  const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -152,10 +154,18 @@ export default function ShortsPage() {
     return () => {
       previews.forEach((url) => URL.revokeObjectURL(url));
       if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
-      if (projectUrl) URL.revokeObjectURL(projectUrl);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 언마운트 시 1회만 정리
   }, []);
+
+  // 장면의 사진을 바꾸면 내려받을 파일도 따라 바뀌어야 한다. 생성할 때 한 번만
+  // 만들어두면 편집한 내용이 빠진 채로 받아가게 된다. 대본은 몇 KB뿐이라 데이터
+  // URL로 바로 만든다 — objectURL과 달리 나중에 해제할 것이 남지 않는다.
+  const projectUrl = useMemo(() => {
+    if (!storyboard) return "";
+    const json = JSON.stringify({ ...storyboard, source: "web-upload" }, null, 2);
+    return `data:application/json;charset=utf-8,${encodeURIComponent(json)}`;
+  }, [storyboard]);
 
   const authedFetch = async (input: string, init: RequestInit = {}) => {
     const {
@@ -202,12 +212,53 @@ export default function ShortsPage() {
     acceptFiles(event.dataTransfer.files);
   };
 
+  const photoNumberOf = (url: string) => uploadedUrls.indexOf(url) + 1;
+
+  // 장면이 쓸 사진을 바꾼다. 고른 사진을 이미 다른 장면이 쓰고 있으면 두 장면의
+  // 사진을 맞바꾼다. 한쪽으로 밀어내면 같은 사진이 두 장면에 겹치거나, 쓰던 사진이
+  // 아무 데도 안 남게 된다.
+  const changeSceneImage = (sceneIndex: number, photoNumber: number) => {
+    setStoryboard((prev) => {
+      if (!prev) return prev;
+      const wanted = uploadedUrls[photoNumber - 1];
+      const current = prev.scenes[sceneIndex]?.imageUrl;
+      if (!wanted || !current || wanted === current) return prev;
+      return {
+        ...prev,
+        scenes: prev.scenes.map((scene, i) => {
+          if (i === sceneIndex) return { ...scene, imageUrl: wanted };
+          if (scene.imageUrl === wanted) return { ...scene, imageUrl: current };
+          return scene;
+        }),
+      };
+    });
+  };
+
+  // 썸네일은 첫 장면 사진으로 만든다. 첫 장면을 바꿨으면 다시 만들어야 맞는다.
+  const rebuildThumbnail = async () => {
+    if (!storyboard) return;
+    try {
+      const response = await authedFetch("/api/thumbnail/compose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          backgroundUrl: storyboard.scenes[0].imageUrl,
+          title: storyboard.thumbnailCopy,
+        }),
+      });
+      if (!response.ok) return;
+      if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
+      setThumbnailUrl(URL.createObjectURL(await response.blob()));
+    } catch {
+      // 썸네일은 곁다리라, 실패해도 대본과 영상 제작에는 지장이 없다.
+    }
+  };
+
   const handleGenerate = async () => {
     setErrorMessage("");
     setUploadedCount(0);
     setStoryboard(null);
     setThumbnailUrl("");
-    setProjectUrl("");
 
     try {
       setStep("uploading");
@@ -246,6 +297,7 @@ export default function ShortsPage() {
       if (!analyzeResponse.ok) {
         throw new Error(board.error ?? "시나리오 생성에 실패했습니다.");
       }
+      setUploadedUrls(imageUrls);
       setStoryboard(board);
 
       setStep("composing");
@@ -261,12 +313,6 @@ export default function ShortsPage() {
         setThumbnailUrl(URL.createObjectURL(await composeResponse.blob()));
       }
 
-      // 로컬 렌더러(build_shorts.py)가 그대로 먹는 프로젝트 파일
-      const project = new Blob(
-        [JSON.stringify({ ...board, source: "web-upload" }, null, 2)],
-        { type: "application/json" },
-      );
-      setProjectUrl(URL.createObjectURL(project));
       setStep("done");
     } catch (err) {
       setErrorMessage(
@@ -437,6 +483,13 @@ export default function ShortsPage() {
                 >
                   썸네일 저장
                 </a>
+                <button
+                  type="button"
+                  onClick={rebuildThumbnail}
+                  className="mt-1 block w-full rounded-full px-3 py-1 text-center text-xs text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
+                >
+                  첫 장면 바꿨으면 다시 만들기
+                </button>
               </div>
             )}
 
@@ -446,18 +499,51 @@ export default function ShortsPage() {
                 {" · "}BGM: {storyboard.bgmMood}
               </p>
               <ol className="flex flex-col gap-2">
-                {storyboard.scenes.map((scene) => (
-                  <li
-                    key={scene.index}
-                    className="rounded-lg border border-zinc-200 p-2 text-sm dark:border-zinc-800"
-                  >
-                    <span className="text-xs text-zinc-400">
-                      장면 {scene.index} · SFX {scene.sfx} · 줌 {scene.kenBurns}
-                    </span>
-                    <p className="text-zinc-800 dark:text-zinc-200">{scene.narration}</p>
-                  </li>
-                ))}
+                {storyboard.scenes.map((scene, sceneIndex) => {
+                  const photoNumber = photoNumberOf(scene.imageUrl);
+                  return (
+                    <li
+                      key={scene.index}
+                      className="flex gap-2 rounded-lg border border-zinc-200 p-2 text-sm dark:border-zinc-800"
+                    >
+                      {previews[photoNumber - 1] && (
+                        // eslint-disable-next-line @next/next/no-img-element -- blob objectURL
+                        <img
+                          src={previews[photoNumber - 1]}
+                          alt={`장면 ${scene.index} 사진`}
+                          className="h-20 w-12 shrink-0 rounded object-cover"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <span className="text-xs text-zinc-400">
+                          장면 {scene.index} · SFX {scene.sfx} · 줌 {scene.kenBurns}
+                        </span>
+                        <p className="text-zinc-800 dark:text-zinc-200">
+                          {scene.narration}
+                        </p>
+                        <select
+                          value={photoNumber}
+                          onChange={(event) =>
+                            changeSceneImage(sceneIndex, Number(event.target.value))
+                          }
+                          className="mt-1 rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
+                        >
+                          {uploadedUrls.map((_, i) => (
+                            <option key={i} value={i + 1}>
+                              사진 {i + 1}
+                              {i + 1 === photoNumber ? " (현재)" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </li>
+                  );
+                })}
               </ol>
+              <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                사진이 마음에 안 들면 장면마다 바꿀 수 있어요. 이미 다른 장면이 쓰는
+                사진을 고르면 둘이 자리를 맞바꿉니다.
+              </p>
             </div>
           </div>
 
