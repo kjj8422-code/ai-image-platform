@@ -69,7 +69,7 @@ Rules for "narration" (Korean, one line per scene):
 - 썰체/구어체 only. Talk like you're telling a friend something unbelievable that just happened to you.
 - NEVER use stiff narration or textbook phrasing ("~하는 방법", "~의 모든 것", "오늘은 ~에 대해 알아보겠습니다"). If it sounds like a documentary or a blog intro, rewrite it.
 - Use wit, provocation, mock-outrage, and 억울함. Endings like "ㅋㅋㅋ", "ㄷㄷ", "??", "아니 진짜로" are welcome where they land naturally.
-- Each scene's narration should be about 2 to 4 seconds when read aloud. Keep the whole thing under 30 seconds.
+- 각 장면 나레이션은 소리 내어 읽었을 때 2~4초, 공백을 뺀 한글 10~25자다. 한 장면에 문장을 두 개 넣지 마라. 넘치면 그건 다음 장면으로 쪼개라.
 
 【이야기 뼈대】 ${SCENE_COUNT}개 장면을 이 흐름으로 짜라.
 - 첫 장면: 훅. 결과나 제일 이상한 장면을 먼저 던져라. 배경 설명으로 시작하면 그 자리에서 넘긴다.
@@ -93,7 +93,7 @@ Rules for "narration" (Korean, one line per scene):
 
 【리듬】 전부 비슷한 길이면 읽을 때 리듬이 죽어서 기계가 읽는 것처럼 들린다. 숫자로 지킬 것:
 - 공백을 뺀 글자 수로 셌을 때, 가장 짧은 줄은 8자 이하여야 한다.
-- 가장 긴 줄은 20자 이상이어야 한다. 즉 차이가 12자 이상이어야 한다. 모든 줄이 10~15자 언저리로 고르게 나오면 그건 실패다.
+- 가장 긴 줄은 20자 이상, 25자 이하여야 한다. 즉 차이가 12자 이상이어야 한다. 모든 줄이 10~15자 언저리로 고르게 나오면 그건 실패이고, 30자를 넘는 줄이 있어도 실패다.
 - 8자 이하인 짧은 줄은 반전 직전이나 직후에 놓으면 제일 세게 꽂힌다.
 
 【톤이 살아나게】 이 대본은 기계 음성이 소리 내어 읽는다. 문장부호와 감탄사가 없으면 전부 같은 높이로 읽어서 감정 없는 안내방송처럼 들린다:
