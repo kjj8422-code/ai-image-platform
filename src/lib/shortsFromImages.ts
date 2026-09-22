@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { BGM_MOODS, SFX_LIBRARY } from "@/lib/shortsStoryboard";
+import { BGM_MOODS, SFX_LIBRARY } from "./shortsStoryboard.ts";
 
 // 사용자가 올린 이미지 5~10장을 Claude가 직접 "보고" B급 썰체 시나리오를 쓴다.
 //
@@ -56,7 +56,7 @@ export type ImageStoryboardScene = z.infer<typeof SceneSchema> & {
 // 모델이 없는 사진 번호를 부르거나 같은 사진을 두 번 쓸 수 있다. 그런 장면만
 // 걷어내고 나머지로 영상을 만든다. 통째로 실패시키면 사용자는 API 비용만 치르고
 // 아무것도 못 받는다.
-const takeUsableScenes = <T extends { imageIndex: number }>(
+export const takeUsableScenes = <T extends { imageIndex: number }>(
   scenes: T[],
   imageCount: number,
 ): T[] => {

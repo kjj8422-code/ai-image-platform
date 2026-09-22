@@ -1,5 +1,5 @@
 import type Replicate from "replicate";
-import { withRetryOn429 } from "@/lib/replicateHelpers";
+import { withRetryOn429 } from "./replicateHelpers.ts";
 
 // 제주도 기반 판타지/B급 바이럴 쇼츠용 스토리보드 생성기.
 // 주제 한 줄 -> 6장면 대본 + 장면별 이미지 프롬프트 + SFX/BGM 타임라인을 한 번에 만든다.
