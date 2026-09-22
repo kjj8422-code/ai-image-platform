@@ -57,7 +57,12 @@ for _stream in (sys.stdout, sys.stderr):
 
 SKILL_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SKILL_DIR.parents[2]  # .claude/skills/viral-shorts -> ai-image-platform
-FONT_PATH = PROJECT_ROOT / "public" / "fonts" / "NotoSansKR-Variable.ttf"
+# 가변 폰트의 기본 굵기는 Thin(100)이다. 그대로 쓰면 머리카락 같은 글씨에 두꺼운
+# 테두리만 두른 꼴이라 제목이 조잡해 보인다. Black(900)으로 고정한 본을 쓴다.
+_FONT_DIR = PROJECT_ROOT / "public" / "fonts"
+FONT_PATH = _FONT_DIR / "NotoSansKR-Black.ttf"
+if not FONT_PATH.exists():  # 아직 안 받은 저장소에서도 돌아가게 물러설 자리를 둔다
+    FONT_PATH = _FONT_DIR / "NotoSansKR-Variable.ttf"
 SFX_DIR = SKILL_DIR / "assets" / "sfx"
 BGM_DIR = SKILL_DIR / "assets" / "bgm"
 
@@ -69,7 +74,24 @@ FPS = 30
 
 # 자막은 하단 25%(쇼츠 제목/채널정보 자리) 위쪽에 둔다.
 SUBTITLE_Y = int(VIDEO_HEIGHT * 0.62)
-THUMBNAIL_COPY_Y = 170
+THUMBNAIL_COPY_Y = 110
+
+# 제목은 첫 1.6초짜리 훅이라 이야기 분위기와 색이 어긋나면 그 자리에서 넘긴다.
+# 그래서 스토리보드가 고른 bgmMood에 맞춰 색과 두께를 바꾼다. 반면 자막은 영상
+# 내내 떠 있는 기능적 요소라, 분위기마다 색이 바뀌면 산만하고 읽기 피로해진다.
+# 그래서 자막은 아래 SUBTITLE_COLOR로 고정한다.
+SUBTITLE_COLOR = "#F5FF00"
+TITLE_STYLES = {
+    # 차갑고 서늘하게. 흰색이 가장 멀리서도 먼저 읽힌다.
+    "mystery": {"color": "#FFFFFF", "stroke": 9, "shadow": 13, "size": 112},
+    # 금색은 스케일과 무게감을 준다. 테두리를 두껍게 해 하늘 배경에서도 버틴다.
+    "epic": {"color": "#FFD24D", "stroke": 13, "shadow": 12, "size": 116},
+    # 형광 노랑은 가장 시끄럽고 가장 잘 읽힌다. 코믹한 이야기에 맞다.
+    "playful": {"color": "#F5FF00", "stroke": 13, "shadow": 11, "size": 118},
+    # 몽환은 테두리를 얇게 하고 그림자로 띄운다. 외곽선이 굵으면 분위기가 깨진다.
+    "dreamy": {"color": "#FFEAF3", "stroke": 7, "shadow": 17, "size": 110},
+}
+DEFAULT_TITLE_STYLE = TITLE_STYLES["playful"]
 # 좌우 15%는 좋아요/댓글 버튼 자리라 텍스트가 침범하지 않도록 폭을 제한한다.
 TEXT_MAX_WIDTH = int(VIDEO_WIDTH * 0.7)
 SUBTITLE_MAX_HEIGHT = 280
@@ -356,6 +378,7 @@ def _text_clip(
     stroke_width: int,
     max_height: int,
     min_font_size: int = 44,
+    color: str = SUBTITLE_COLOR,
 ):
     from moviepy import TextClip
 
@@ -365,7 +388,7 @@ def _text_clip(
             font=str(FONT_PATH),
             text=text,
             font_size=size,
-            color="#F5FF00",
+            color=color,
             stroke_color="black",
             stroke_width=stroke_width,
             method="caption",
@@ -375,11 +398,13 @@ def _text_clip(
             # 닿아서(아래 여백 0px) 검은 테두리와 받침 아래가 깎여 나갔다.
             # 그래서 4-tuple로 아래 여백만 따로 키운다. stroke*6이면 어떤 단어든
             # 30px 이상 남는 것을 측정으로 확인했다.
+            # 테두리가 얇은 스타일에서는 stroke*6이 너무 작아져 다시 아슬아슬해지므로
+            # 바닥은 최소값을 둔다.
             margin=(
                 stroke_width * 2,
                 stroke_width * 2,
                 stroke_width * 2,
-                stroke_width * 6,
+                max(stroke_width * 6, 48),
             ),
         )
         if clip.h <= max_height or size <= min_font_size:
@@ -407,6 +432,7 @@ def build_scene_clip(
     duration: float,
     thumbnail_copy: str = "",
     ken_burns: bool = True,
+    mood: str = "playful",
 ):
     """장면 1개: Ken Burns 배경 + 단어별 자막 (+ 첫 장면이면 썸네일 카피)."""
     from moviepy import CompositeVideoClip, ImageClip
@@ -439,10 +465,35 @@ def build_scene_clip(
         )
 
     if thumbnail_copy:
+        style = TITLE_STYLES.get(mood, DEFAULT_TITLE_STYLE)
+        shown = min(THUMBNAIL_COPY_SECONDS, duration)
+
+        # 그림자를 한 겹 아래 깔고 그 위에 본 글씨를 얹는다. 배경이 밝은 하늘이든
+        # 어두운 바다든 제목이 묻히지 않게 하는 가장 값싼 방법이고, 테두리만 두껍게
+        # 키우는 것보다 글자 모양을 덜 망가뜨린다.
         layers.append(
-            _text_clip(thumbnail_copy, 118, 16, THUMBNAIL_COPY_MAX_HEIGHT)
+            _text_clip(
+                thumbnail_copy,
+                style["size"],
+                style["stroke"],
+                THUMBNAIL_COPY_MAX_HEIGHT,
+                color="black",
+            )
             .with_start(0)
-            .with_duration(min(THUMBNAIL_COPY_SECONDS, duration))
+            .with_duration(shown)
+            .with_opacity(0.5)
+            .with_position(("center", THUMBNAIL_COPY_Y + style["shadow"]))
+        )
+        layers.append(
+            _text_clip(
+                thumbnail_copy,
+                style["size"],
+                style["stroke"],
+                THUMBNAIL_COPY_MAX_HEIGHT,
+                color=style["color"],
+            )
+            .with_start(0)
+            .with_duration(shown)
             .with_position(("center", THUMBNAIL_COPY_Y))
         )
 
@@ -498,6 +549,7 @@ def build_video(
     # CompositeVideoClip으로 감싸면 1.6초짜리 자막 하나 때문에 모든 프레임이 합성
     # 단계를 한 번 더 거치게 되어 렌더가 눈에 띄게 느려진다.
     copy_text = storyboard.get("thumbnailCopy", "").strip()
+    mood = storyboard.get("bgmMood", "playful")
 
     clips = [
         build_scene_clip(
@@ -506,6 +558,7 @@ def build_video(
             scene["duration"],
             thumbnail_copy=copy_text if index == 0 else "",
             ken_burns=ken_burns,
+            mood=mood,
         )
         for index, scene in enumerate(scenes)
     ]
