@@ -22,7 +22,7 @@ type Storyboard = {
 };
 
 const MIN_IMAGES = 5;
-const MAX_IMAGES = 10;
+const MAX_IMAGES = 15;
 
 const STEP_LABEL: Record<Step, string> = {
   idle: "",
@@ -324,7 +324,11 @@ export default function ShortsPage() {
       {/* 1단계: 업로드 */}
       <section className="flex w-full max-w-2xl flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
         <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          1. 이미지 {MIN_IMAGES}~{MAX_IMAGES}장을 순서대로 올려주세요 (이야기 순서대로)
+          1. 사진 {MIN_IMAGES}~{MAX_IMAGES}장을 올려주세요
+        </p>
+        <p className="-mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+          순서는 상관없어요. AI가 사진을 보고 한 이야기로 묶이는 것만 골라서,
+          가장 재밌는 순서로 배치합니다. 안 어울리는 사진은 빼고 씁니다.
         </p>
 
         <div
@@ -408,6 +412,12 @@ export default function ShortsPage() {
         <section className="flex w-full max-w-2xl flex-col gap-4 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
           <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
             2. 대본과 썸네일이 나왔어요
+          </p>
+          <p className="-mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+            올린 {files.length}장 중 {storyboard.scenes.length}장을 골라
+            {storyboard.scenes.length}개 장면으로 만들었어요.
+            {files.length > storyboard.scenes.length &&
+              " 빠진 사진은 이야기에 안 맞아 뺀 것이고, 다음 영상에 쓰시면 됩니다."}
           </p>
 
           <div className="flex flex-col gap-4 sm:flex-row">
