@@ -4,16 +4,22 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
-import {
-  loadImage,
-  ensureFontReady,
-  renderThumbnail,
-  renderSafeZoneOverlay,
-} from "@/lib/thumbnailCanvas";
 
 type SuggestState = "idle" | "loading" | "error";
 type BackgroundState = "idle" | "loading" | "error";
+type ComposeState = "idle" | "loading" | "error";
 type SaveState = "idle" | "saving" | "saved" | "error";
+
+// 타이핑 중 매 글자마다 서버에 합성 요청을 보내지 않도록 살짝 지연시킨다.
+const COMPOSE_DEBOUNCE_MS = 500;
+
+const blobToDataUrl = (blob: Blob): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("이미지를 읽지 못했습니다."));
+    reader.readAsDataURL(blob);
+  });
 
 export default function ThumbnailPage() {
   const { user, loading: userLoading } = useSupabaseUser();
@@ -32,11 +38,12 @@ export default function ThumbnailPage() {
   const [selectedBackground, setSelectedBackground] = useState<string>("");
 
   const [showSafeZone, setShowSafeZone] = useState(true);
-  const [renderError, setRenderError] = useState("");
-  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [composeState, setComposeState] = useState<ComposeState>("idle");
+  const [composeError, setComposeError] = useState("");
+  const [composedUrl, setComposedUrl] = useState("");
+  const composedBlobRef = useRef<Blob | null>(null);
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
 
   const authedFetch = async (
     input: string,
@@ -116,83 +123,98 @@ export default function ThumbnailPage() {
     }
   };
 
-  // 배경 선택 또는 타이틀 문구가 바뀔 때마다 캔버스를 다시 그린다.
+  // 배경 선택 또는 타이틀 문구가 바뀔 때마다(살짝 지연 후) 서버에 최종 합성을
+  // 요청한다. 문구·외곽선·그림자·그라데이션은 모두 서버(@napi-rs/canvas)가
+  // 그려서 돌려주므로, 여기서는 결과 이미지를 받아 보여주기만 한다.
   useEffect(() => {
     if (!selectedBackground || !titleText.trim()) {
       return;
     }
 
     let cancelled = false;
+    const timer = setTimeout(() => {
+      const run = async () => {
+        setComposeError("");
+        setComposeState("loading");
+        try {
+          const response = await authedFetch("/api/thumbnail/compose", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              backgroundUrl: selectedBackground,
+              title: titleText,
+            }),
+          });
 
-    const run = async () => {
-      setRenderError("");
-      try {
-        await ensureFontReady(900);
-        const image = await loadImage(selectedBackground);
-        if (cancelled) {
-          return;
-        }
-        const canvas = canvasRef.current;
-        if (!canvas) {
-          return;
-        }
-        renderThumbnail(canvas, { backgroundImage: image, titleText });
-      } catch (err) {
-        if (!cancelled) {
-          setRenderError(
-            err instanceof Error
-              ? err.message
-              : "미리보기를 그리지 못했습니다.",
-          );
-        }
-      }
-    };
+          if (!response.ok) {
+            const result = await response.json();
+            throw new Error(result?.error ?? "합성에 실패했습니다.");
+          }
 
-    void run();
+          const blob = await response.blob();
+          if (cancelled) {
+            return;
+          }
+          composedBlobRef.current = blob;
+          setComposedUrl((previous) => {
+            if (previous) {
+              URL.revokeObjectURL(previous);
+            }
+            return URL.createObjectURL(blob);
+          });
+          setComposeState("idle");
+        } catch (err) {
+          if (!cancelled) {
+            setComposeError(
+              err instanceof Error ? err.message : "합성에 실패했습니다.",
+            );
+            setComposeState("error");
+          }
+        }
+      };
+
+      void run();
+    }, COMPOSE_DEBOUNCE_MS);
+
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [selectedBackground, titleText]);
 
-  // 세이프존 가이드 표시/숨김
+  // 언마운트 시 만들어둔 objectURL을 정리한다.
   useEffect(() => {
-    const overlay = overlayCanvasRef.current;
-    if (!overlay) {
-      return;
-    }
-
-    if (showSafeZone) {
-      renderSafeZoneOverlay(overlay);
-    } else {
-      const ctx = overlay.getContext("2d");
-      ctx?.clearRect(0, 0, overlay.width, overlay.height);
-    }
-  }, [showSafeZone, selectedBackground]);
+    return () => {
+      if (composedUrl) {
+        URL.revokeObjectURL(composedUrl);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 언마운트 시 1회만 정리하면 됨
+  }, []);
 
   const handleDownload = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
+    if (!composedUrl) {
       return;
     }
     const link = document.createElement("a");
     link.download = "shorts-thumbnail.png";
-    link.href = canvas.toDataURL("image/png");
+    link.href = composedUrl;
     link.click();
   };
 
   const handleSaveToGallery = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
+    if (!composedBlobRef.current) {
       return;
     }
 
     setSaveState("saving");
     try {
+      const imageDataUrl = await blobToDataUrl(composedBlobRef.current);
       const response = await authedFetch("/api/gallery/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          imageDataUrl: canvas.toDataURL("image/png"),
+          imageDataUrl,
           prompt: titleText,
           source: "thumbnail",
         }),
@@ -250,7 +272,8 @@ export default function ThumbnailPage() {
       {/* 1단계: 문구/프롬프트 추천 */}
       <section className="flex w-full max-w-2xl flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
         <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          1. 대본 한 줄 또는 키워드를 입력하면 AI가 문구와 배경 프롬프트를 추천해줘요
+          1. 대본 한 줄 또는 키워드를 입력하면 AI가 (B급 감성으로) 문구와 배경
+          프롬프트를 추천해줘요
         </p>
         <textarea
           value={script}
@@ -347,7 +370,12 @@ export default function ThumbnailPage() {
         <section className="flex w-full max-w-2xl flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
           <div className="flex items-center justify-between">
             <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              3. 최종 썸네일 미리보기
+              3. 최종 썸네일 미리보기{" "}
+              {composeState === "loading" && (
+                <span className="text-xs font-normal text-zinc-400">
+                  (합성 중...)
+                </span>
+              )}
             </p>
             <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
               <input
@@ -359,20 +387,29 @@ export default function ThumbnailPage() {
             </label>
           </div>
 
-          <div className="relative mx-auto w-full max-w-[320px]">
-            <canvas
-              ref={canvasRef}
-              className="w-full rounded-xl border border-zinc-200 dark:border-zinc-800"
-            />
-            <canvas
-              ref={overlayCanvasRef}
-              className="pointer-events-none absolute inset-0 w-full"
-            />
+          <div className="relative mx-auto aspect-[9/16] w-full max-w-[320px] overflow-hidden rounded-xl border border-zinc-200 bg-zinc-100 dark:border-zinc-800 dark:bg-zinc-900">
+            {composedUrl && (
+              // eslint-disable-next-line @next/next/no-img-element -- blob object URL
+              <img
+                src={composedUrl}
+                alt="썸네일 미리보기"
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            )}
+
+            {showSafeZone && (
+              <>
+                {/* 하단 25%: 제목/채널정보 영역 */}
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/4 border-t-2 border-dashed border-red-500 bg-red-500/25" />
+                {/* 우측 15%: 좋아요/댓글/공유 버튼 영역 */}
+                <div className="pointer-events-none absolute inset-y-0 right-0 w-[15%] border-l-2 border-dashed border-red-500 bg-red-500/25" />
+              </>
+            )}
           </div>
 
-          {renderError && (
+          {composeError && (
             <p className="text-sm text-red-600 dark:text-red-400">
-              {renderError}
+              {composeError}
             </p>
           )}
 
@@ -380,14 +417,17 @@ export default function ThumbnailPage() {
             <button
               type="button"
               onClick={handleDownload}
-              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+              disabled={!composedUrl}
+              className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
             >
               다운로드
             </button>
             <button
               type="button"
               onClick={() => void handleSaveToGallery()}
-              disabled={saveState === "saving" || saveState === "saved"}
+              disabled={
+                !composedUrl || saveState === "saving" || saveState === "saved"
+              }
               className="rounded-full border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
             >
               {saveState === "saving"
