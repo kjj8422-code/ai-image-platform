@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
+import { BGM_MOODS, SFX_LIBRARY } from "@/lib/shortsStoryboard";
 
 type Step = "idle" | "uploading" | "analyzing" | "composing" | "done" | "error";
 
@@ -23,6 +24,30 @@ type Storyboard = {
 
 const MIN_IMAGES = 5;
 const MAX_IMAGES = 15;
+
+// 장면을 지우다 보면 한 장짜리가 남을 수 있는데, 그건 영상이라기보다 정지 이미지다.
+// 더 줄이고 싶으면 사진을 줄여서 다시 만드는 편이 결과가 낫다.
+const MIN_SCENES = 2;
+
+// 큐 이름(boom, reveal...)만 보여주면 어떤 소리인지 알 수 없어서 고를 수가 없다.
+// 파일 이름은 그대로 두고 화면에만 우리말 설명을 붙인다.
+const SFX_LABEL: Record<string, string> = {
+  boom: "쿵! (충격·등장)",
+  magic: "샤아아~ (마법·판타지)",
+  pop: "뽁 (작은 전환)",
+  whoosh: "휙 (빠른 전환)",
+  suspense: "두구두구 (긴장 고조)",
+  reveal: "짠! (반전 공개)",
+  laugh: "피식 (코믹 마무리)",
+  none: "없음 (조용히)",
+};
+
+const BGM_LABEL: Record<string, string> = {
+  mystery: "미스터리 (음산·떡밥)",
+  epic: "웅장 (반전·스케일)",
+  playful: "장난 (코믹)",
+  dreamy: "몽환 (판타지)",
+};
 
 const STEP_LABEL: Record<Step, string> = {
   idle: "",
@@ -234,6 +259,33 @@ export default function ShortsPage() {
 
   const changeThumbnailCopy = (text: string) => {
     setStoryboard((prev) => (prev ? { ...prev, thumbnailCopy: text } : prev));
+  };
+
+  const changeSfx = (sceneIndex: number, cue: string) => {
+    setStoryboard((prev) =>
+      prev
+        ? {
+            ...prev,
+            scenes: prev.scenes.map((scene, i) =>
+              i === sceneIndex ? { ...scene, sfx: cue } : scene,
+            ),
+          }
+        : prev,
+    );
+  };
+
+  const changeBgmMood = (mood: string) => {
+    setStoryboard((prev) => (prev ? { ...prev, bgmMood: mood } : prev));
+  };
+
+  // 장면을 뺀다. scene.index는 손대지 않는다 — 그 번호가 PC에서 내려받는 이미지
+  // 파일 이름(scene_3.png)이라, 다시 매기면 남은 장면들이 남의 그림을 가져간다.
+  // 화면에 보이는 번호는 어차피 순서대로 다시 그려진다.
+  const removeScene = (sceneIndex: number) => {
+    setStoryboard((prev) => {
+      if (!prev || prev.scenes.length <= MIN_SCENES) return prev;
+      return { ...prev, scenes: prev.scenes.filter((_, i) => i !== sceneIndex) };
+    });
   };
 
   // 장면이 쓸 사진을 바꾼다. 고른 사진을 이미 다른 장면이 쓰고 있으면 두 장면의
@@ -523,7 +575,20 @@ export default function ShortsPage() {
                   onChange={(event) => changeThumbnailCopy(event.target.value)}
                   className="min-w-0 flex-1 rounded border border-zinc-300 bg-transparent px-2 py-1 font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
                 />
-                <span className="shrink-0">BGM {storyboard.bgmMood}</span>
+              </div>
+              <div className="mb-2 flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                <span className="shrink-0">배경음악</span>
+                <select
+                  value={storyboard.bgmMood}
+                  onChange={(event) => changeBgmMood(event.target.value)}
+                  className="min-w-0 flex-1 rounded border border-zinc-300 bg-transparent px-2 py-1 text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
+                >
+                  {BGM_MOODS.map((mood) => (
+                    <option key={mood} value={mood}>
+                      {BGM_LABEL[mood] ?? mood}
+                    </option>
+                  ))}
+                </select>
               </div>
               <ol className="flex flex-col gap-2">
                 {storyboard.scenes.map((scene, sceneIndex) => {
@@ -542,9 +607,24 @@ export default function ShortsPage() {
                         />
                       )}
                       <div className="min-w-0 flex-1">
-                        <span className="text-xs text-zinc-400">
-                          장면 {scene.index} · SFX {scene.sfx} · 줌 {scene.kenBurns}
-                        </span>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-zinc-400">
+                            장면 {sceneIndex + 1} · 줌 {scene.kenBurns}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeScene(sceneIndex)}
+                            disabled={storyboard.scenes.length <= MIN_SCENES}
+                            title={
+                              storyboard.scenes.length <= MIN_SCENES
+                                ? `장면은 ${MIN_SCENES}개보다 적을 수 없어요`
+                                : "이 장면 빼기"
+                            }
+                            className="shrink-0 rounded px-1.5 py-0.5 text-xs text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-zinc-400 dark:hover:bg-red-950 dark:hover:text-red-400"
+                          >
+                            빼기
+                          </button>
+                        </div>
                         <textarea
                           value={scene.narration}
                           onChange={(event) =>
@@ -564,28 +644,46 @@ export default function ShortsPage() {
                           {inkLength(scene.narration) > 25 && " · 25자 넘으면 길어요"}
                           {inkLength(scene.narration) <= 8 && " · 짧게 툭 (좋아요)"}
                         </span>
-                        <select
-                          value={photoNumber}
-                          onChange={(event) =>
-                            changeSceneImage(sceneIndex, Number(event.target.value))
-                          }
-                          className="mt-1 rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
-                        >
-                          {uploadedUrls.map((_, i) => (
-                            <option key={i} value={i + 1}>
-                              사진 {i + 1}
-                              {i + 1 === photoNumber ? " (현재)" : ""}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="mt-1 flex flex-wrap gap-1.5">
+                          <select
+                            value={photoNumber}
+                            onChange={(event) =>
+                              changeSceneImage(sceneIndex, Number(event.target.value))
+                            }
+                            className="rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
+                          >
+                            {uploadedUrls.map((_, i) => (
+                              <option key={i} value={i + 1}>
+                                사진 {i + 1}
+                                {i + 1 === photoNumber ? " (현재)" : ""}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={scene.sfx}
+                            onChange={(event) =>
+                              changeSfx(sceneIndex, event.target.value)
+                            }
+                            className="rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
+                          >
+                            {SFX_LIBRARY.map((cue) => (
+                              <option key={cue} value={cue}>
+                                {SFX_LABEL[cue] ?? cue}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     </li>
                   );
                 })}
               </ol>
               <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
-                사진이 마음에 안 들면 장면마다 바꿀 수 있어요. 이미 다른 장면이 쓰는
-                사진을 고르면 둘이 자리를 맞바꿉니다.
+                영상 뽑기 전에 여기서 다 고칠 수 있어요. 대본은 직접 쓰고, 사진·효과음은
+                골라서 바꾸고, 필요 없는 장면은 &ldquo;빼기&rdquo;로 지우면 됩니다. 이미
+                다른 장면이 쓰는 사진을 고르면 둘이 자리를 맞바꿉니다.
+                {storyboard.scenes.length <= MIN_SCENES &&
+                  ` 지금은 ${MIN_SCENES}개라 더 뺄 수 없어요.`}
               </p>
             </div>
           </div>

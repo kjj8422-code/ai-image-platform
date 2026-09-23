@@ -51,6 +51,46 @@ def test_fit_to_frame_crops_instead_of_squashing():
             assert top == (0, 255, 0), f"위아래를 잘라내지 않았다: {top}"
 
 
+def test_sfx_never_outlasts_its_scene():
+    """효과음이 장면보다 길면 다음 장면 대사 위로 넘어간다."""
+    assert bs.sfx_length(clip_duration=17.3, scene_duration=3.0) <= 3.0
+
+
+def test_sfx_is_capped_even_in_a_long_scene():
+    """받아온 음원이 17초·19초짜리였다. 장면이 길어도 큐는 짧게 끊어야 한다.
+
+    안 자르면 트레일러 붐 하나가 영상 내내 깔려 나레이션을 덮는다.
+    """
+    assert bs.sfx_length(clip_duration=17.3, scene_duration=30.0) == bs.SFX_MAX_SECONDS
+
+
+def test_short_sfx_is_left_alone():
+    """0.7초짜리 뽁 소리까지 늘리거나 줄이면 안 된다."""
+    assert bs.sfx_length(clip_duration=0.67, scene_duration=4.0) == 0.67
+
+
+def test_loud_sfx_is_pulled_down_under_the_voice():
+    """트레일러 붐(RMS 0.45)은 나레이션(0.106)보다 커서 훅 대사를 덮었다."""
+    gain = bs.sfx_gain(0.45325)
+    assert 0.45325 * gain < 0.106, "효과음이 여전히 나레이션보다 크다"
+
+
+def test_quiet_sfx_is_lifted_but_not_blown_up():
+    """UI 핑처럼 조용한 파일은 키워야 들리지만, 무한정 키우면 잡음까지 커진다."""
+    assert bs.sfx_gain(0.0001) == bs.SFX_MAX_GAIN
+
+
+def test_silent_file_does_not_crash():
+    """빈 파일이 들어와도 0으로 나누면 안 된다."""
+    assert bs.sfx_gain(0.0) == 1.0
+
+
+def test_all_cues_land_at_a_similar_level():
+    """파일마다 녹음 레벨이 달라도 귀에는 비슷하게 들려야 한다."""
+    levels = [raw * bs.sfx_gain(raw) for raw in (0.45325, 0.05, 0.012)]
+    assert max(levels) - min(levels) < 0.01, f"레벨이 제각각이다: {levels}"
+
+
 def test_slugify_never_returns_empty():
     """폴더 이름으로 쓰이므로 절대 빈 문자열이 되면 안 된다."""
     for text in ["", "   ", "???", "!!!...", "///"]:
