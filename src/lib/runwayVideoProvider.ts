@@ -2,16 +2,17 @@ import RunwayML from "@runwayml/sdk";
 import type { ImageToVideoRequest, PollResult, SubmitResult, VideoProvider } from "./videoProvider";
 
 // Runway Gen-4 Turbo로 이미지를 동영상 클립으로 만든다.
-// 가격 $0.05/초 = 5 credit/초 (공식 https://docs.dev.runwayml.com/guides/pricing/ 확인함,
-// 2026-09-23 기준). 1 credit == $0.01 == 1 cent라 credits 값을 그대로 cent로 쓴다.
+// 가격: 초당 5 credit, 최소 10 credit(=2초 미만이어도 2초치 청구) — dev.runwayml.com의
+// image_to_video 플레이그라운드(modelId=gen4_turbo)에서 직접 확인함, 2026-09-23 기준.
+// 1 credit == $0.01 == 1 cent라 credits 값을 그대로 cent로 쓴다.
 //
 // 실제로 이 클래스를 쓰려면 RUNWAYML_API_SECRET 환경변수가 필요하다(dev.runwayml.com에서
-// 발급). 아직 등록 안 됐고, 이 파일은 코드만 작성한 단계 — 승인 전까지 호출 안 함.
+// 발급).
 //
-// 5초 미만 요청이 와도 Runway 최소 단위(5초/10초)로 반올림한다 — 실제 과금 대상 길이가
-// 화면에 보이는 "장면 목표 길이"와 다를 수 있다는 걸 호출부(작업 생성 UI)가 안내해야 한다.
-const roundToSupportedDuration = (seconds: number): 5 | 10 =>
-  seconds <= 5 ? 5 : 10;
+// 지원 길이는 2~10초의 정수 초 단위다(같은 플레이그라운드의 Duration 드롭다운에서 확인:
+// 2,3,4,5,6,7,8,9,10초 전부 선택 가능 — "5초/10초 중 하나만 된다"는 예전 가정은 틀렸다).
+const clampToSupportedDuration = (seconds: number): number =>
+  Math.min(10, Math.max(2, Math.round(seconds)));
 
 export class RunwayVideoProvider implements VideoProvider {
   readonly name = "runway-gen4-turbo";
@@ -28,15 +29,17 @@ export class RunwayVideoProvider implements VideoProvider {
   }
 
   estimateCostCents(durationSeconds: number): number {
-    return roundToSupportedDuration(durationSeconds) * 5; // 5 credit(=5 cent)/초
+    return Math.max(10, clampToSupportedDuration(durationSeconds) * 5); // 최소 10 credit
   }
 
   async submit(request: ImageToVideoRequest): Promise<SubmitResult> {
-    const duration = roundToSupportedDuration(request.durationSeconds);
+    const duration = clampToSupportedDuration(request.durationSeconds);
 
-    // 참조 이미지(캐릭터 일관성)는 Runway image_to_video API 자체의 다중 참조 여부가
-    // 공식 문서로 확인 안 됐다 — 일단 메인 이미지만 promptImage로 보낸다.
-    // referenceImageUrls는 받아만 두고 아직 안 씀(후속 조사 대상, videoProvider.ts 참고).
+    // 참조 이미지(캐릭터 일관성) 미지원을 SDK 타입 정의로 확인함: gen4_turbo의
+    // promptImage는 배열을 받을 수는 있지만 각 원소의 position이 'first' 하나뿐이라
+    // "여러 시작 프레임 후보"가 아니라 사실상 이미지 1장용이다. 진짜 다중 참조가
+    // 필요하면 이 공급자로는 안 되고 다른 모델(예: Veo3.1 first+last)을 봐야 한다.
+    // referenceImageUrls는 그래서 여기선 그냥 버려진다 — 후속 조사 대상.
     const task = await this.client.imageToVideo.create({
       model: "gen4_turbo",
       promptImage: request.sourceImageUrl,

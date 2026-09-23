@@ -9,17 +9,21 @@ import { parseAllowedImageUrl } from "@/lib/downloadHosts";
 // 이 라우트가 서버에서 파일을 받아 Content-Disposition: attachment 를 붙여
 // 다시 내려준다. 그러면 PC·휴대폰 모두 실제 "저장"으로 동작한다.
 
-const MAX_BYTES = 25 * 1024 * 1024;
+const MAX_BYTES = 100 * 1024 * 1024; // 영상 클립은 이미지보다 커서 여유를 둔다
 
 // 저장될 파일 이름을 만든다. 원본 경로의 확장자를 살리고, 없으면
 // 실제 Content-Type에서 가져온다.
 const buildFileName = (pathname: string, contentType: string): string => {
-  const fromPath = /\.(png|jpe?g|webp)$/i.exec(pathname)?.[1]?.toLowerCase();
+  const fromPath = /\.(png|jpe?g|webp|mp4|webm)$/i.exec(pathname)?.[1]?.toLowerCase();
   const fromType = contentType.includes("webp")
     ? "webp"
     : contentType.includes("jpeg")
       ? "jpg"
-      : "png";
+      : contentType.includes("webm")
+        ? "webm"
+        : contentType.startsWith("video/")
+          ? "mp4"
+          : "png";
   const extension = (fromPath === "jpeg" ? "jpg" : fromPath) ?? fromType;
 
   const now = new Date();
@@ -65,11 +69,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // 이미지가 아닌 응답을 그대로 흘려보내지 않는다.
+    // 이미지·영상이 아닌 응답을 그대로 흘려보내지 않는다. AI 영상 쇼츠의 장면
+    // 클립(mp4)도 이 라우트를 같이 쓴다(build_shorts.py가 같은 프록시 이유로
+    // 필요로 함 — 회사망 프록시가 미분류 CDN 도메인을 가로채는 문제 회피).
     const contentType = upstream.headers.get("content-type") ?? "";
-    if (!contentType.startsWith("image/")) {
+    if (!contentType.startsWith("image/") && !contentType.startsWith("video/")) {
       return NextResponse.json(
-        { error: "이미지 파일이 아닙니다." },
+        { error: "이미지·영상 파일이 아닙니다." },
         { status: 502 },
       );
     }

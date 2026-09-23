@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
@@ -25,6 +25,15 @@ const STYLE_OPTIONS: { value: JobStyle; label: string }[] = [
   { value: "product_ad", label: "제품 광고" },
 ];
 
+// build_shorts.py의 BGM_DIR에 있는 무드 중에서 스타일과 톤이 가까운 것을 고른다.
+// 사용자가 직접 고르는 UI는 후속 범위 — 지금은 스타일 하나에 무드 하나씩 고정.
+const BGM_MOOD_BY_STYLE: Record<JobStyle, string> = {
+  comic: "playful",
+  jeju_travel: "epic",
+  emotional: "dreamy",
+  product_ad: "epic",
+};
+
 type JobStatus =
   | "idle"
   | "planning"
@@ -44,6 +53,7 @@ type Job = {
   maxBudgetCents: number | null;
   spentCents: number;
   error: string | null;
+  narrationEnabled: boolean;
 };
 
 type Scene = {
@@ -276,6 +286,31 @@ export default function VideoShortsPage() {
 
   const usingRealProvider = job?.provider && job.provider !== "mock";
 
+  const readyScenes = scenes.filter((s) => s.status === "ready");
+  const allScenesReady = scenes.length > 0 && readyScenes.length === scenes.length;
+
+  // build_shorts.py가 그대로 읽을 수 있는 형식으로 만든다(사진 쇼츠가 받는 것과
+  // 같은 shorts-project.json 구조 + scenes[].videoUrl). 이 파이프라인은 나레이션
+  // 실측 길이로 장면 타이밍을 맞추므로, 나레이션을 껐던 작업은 지원하지 않는다.
+  const projectUrl = useMemo(() => {
+    if (!job || !job.narrationEnabled || !allScenesReady) return "";
+    const project = {
+      thumbnailCopy: "",
+      bgmMood: BGM_MOOD_BY_STYLE[style] ?? "playful",
+      scenes: scenes.map((scene) => ({
+        index: scene.sceneIndex,
+        narration: scene.narration ?? "",
+        sfx: "none",
+        kenBurns: "in",
+        videoUrl: scene.videoUrl,
+      })),
+      source: "web-upload-video",
+    };
+    const json = JSON.stringify(project, null, 2);
+    return `data:application/json;charset=utf-8,${encodeURIComponent(json)}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.id, job?.narrationEnabled, allScenesReady, scenes]);
+
   if (userLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
@@ -412,10 +447,43 @@ export default function VideoShortsPage() {
             })}
           </ol>
 
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            모든 장면을 만든 뒤 나레이션·자막·배경음악을 합쳐 하나의 MP4로 만드는 기능은
-            아직 없습니다(후속 범위). 지금은 장면별 클립을 개별적으로 내려받을 수 있어요.
-          </p>
+          <div className="flex flex-col gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              3. 최종 영상(MP4)은 PC에서 뽑습니다
+            </p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              나레이션·자막·배경음악을 합쳐 하나의 세로 영상으로 만드는 작업은 사진 쇼츠와
+              같은 방식으로 PC에서 처리합니다(웹 서버에서 돌리기엔 너무 오래 걸려서요).
+              모든 장면이 완성되면 아래에서 프로젝트 파일을 받아 실행하세요.
+            </p>
+            {!job?.narrationEnabled && (
+              <p className="text-xs text-amber-600 dark:text-amber-500">
+                내레이션을 끄고 만든 작업이라 자동 합치기를 지원하지 않아요(장면 길이를
+                나레이션 실측 길이로 맞추는 방식이라서요). 장면별 클립은 위에서 개별
+                다운로드할 수 있습니다.
+              </p>
+            )}
+            {job?.narrationEnabled && !allScenesReady && (
+              <p className="text-xs text-zinc-400 dark:text-zinc-500">
+                아직 완성되지 않은 장면이 있어요 ({readyScenes.length}/{scenes.length}).
+                모든 장면이 완성되면 다운로드 버튼이 나타납니다.
+              </p>
+            )}
+            {projectUrl && (
+              <>
+                <a
+                  href={projectUrl}
+                  download="shorts-video-project.json"
+                  className="self-start rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+                >
+                  프로젝트 파일 내려받기
+                </a>
+                <pre className="overflow-x-auto rounded-lg bg-zinc-900 p-3 text-xs text-zinc-100">
+                  python .claude/skills/viral-shorts/build_shorts.py --project shorts-video-project.json
+                </pre>
+              </>
+            )}
+          </div>
         </section>
       )}
     </div>
