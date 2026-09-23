@@ -27,6 +27,10 @@ export class RunwayVideoProvider implements VideoProvider {
     this.client = new RunwayML({ apiKey });
   }
 
+  estimateCostCents(durationSeconds: number): number {
+    return roundToSupportedDuration(durationSeconds) * 5; // 5 credit(=5 cent)/초
+  }
+
   async submit(request: ImageToVideoRequest): Promise<SubmitResult> {
     const duration = roundToSupportedDuration(request.durationSeconds);
 
@@ -44,7 +48,7 @@ export class RunwayVideoProvider implements VideoProvider {
     return {
       providerJobId: task.id,
       providerModel: "gen4_turbo",
-      estimatedCostCents: duration * 5, // 5 credit/초
+      estimatedCostCents: this.estimateCostCents(request.durationSeconds),
     };
   }
 

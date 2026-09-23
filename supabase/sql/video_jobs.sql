@@ -62,6 +62,7 @@ create table if not exists video_scenes (
     check (status in ('queued','generating','ready','selected','failed')),
   provider_raw_url text, -- 공급자 임시 URL (보통 1~48시간 내 만료 — 다운로드 전까지만 씀)
   video_url text, -- 우리 Storage에 옮겨 담은 영구 URL
+  last_polled_at timestamptz, -- 공급자 상태 조회 빈도 제한용(너무 자주 poll하지 않기 위함)
   error text,
 
   generation_history jsonb not null default '[]', -- 재생성 이력: [{providerJobId, videoUrl, costCents, createdAt}]
@@ -79,3 +80,15 @@ create index if not exists video_scenes_job_id_idx on video_scenes(job_id);
 -- 모든 접근은 서버 API route가 service_role 키로만 한다 (requireUser로 소유권 검증 후).
 alter table video_jobs enable row level security;
 alter table video_scenes enable row level security;
+
+-- 여러 장면이 거의 동시에 완료돼 spent_cents를 각자 더할 때, "읽고-더하고-쓰기"를
+-- 앱 코드에서 하면 경쟁 상태로 한쪽 증가분이 사라질 수 있다. DB 함수로 원자적으로 더한다.
+create or replace function increment_video_job_spent(p_job_id uuid, p_amount integer)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update video_jobs set spent_cents = spent_cents + p_amount, updated_at = now()
+  where id = p_job_id;
+$$;

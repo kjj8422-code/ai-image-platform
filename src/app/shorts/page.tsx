@@ -433,12 +433,20 @@ export default function ShortsPage() {
         <h1 className="text-2xl font-semibold text-black dark:text-white">
           이미지로 쇼츠 만들기
         </h1>
-        <Link
-          href="/thumbnail"
-          className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
-        >
-          썸네일만 만들기 →
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/shorts/video"
+            className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+          >
+            AI 영상 쇼츠(베타) →
+          </Link>
+          <Link
+            href="/thumbnail"
+            className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+          >
+            썸네일만 만들기 →
+          </Link>
+        </div>
       </div>
 
       {/* 1단계: 업로드 */}
