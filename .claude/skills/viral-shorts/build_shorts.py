@@ -469,6 +469,85 @@ def fit_to_frame(src: Path, dest: Path) -> Path:
     return dest
 
 
+def download_video(config: dict, token: str, url: str, dest: Path) -> Path:
+    """AI 영상 쇼츠의 장면 클립(mp4)을 /api/download 프록시로 받아온다.
+
+    이유는 download_image와 같다 — 회사망 프록시가 미분류 CDN 도메인을 가로채는
+    환경에서 직접 받으면 차단 안내 페이지가 대신 내려온다.
+    """
+    proxied = (
+        f"{config['base_url']}/api/download?url={urllib.parse.quote(url, safe='')}"
+    )
+    request = urllib.request.Request(
+        proxied, headers={"Authorization": f"Bearer {token}"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=180) as response:
+            payload = response.read()
+    except urllib.error.HTTPError as err:
+        raw = err.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"영상 클립 다운로드 실패 ({err.code}): {raw}") from err
+
+    if len(payload) < 100:
+        raise RuntimeError(
+            f"내려받은 영상 클립이 비정상적으로 작습니다({len(payload)} bytes). "
+            "네트워크가 응답을 가로챘을 수 있습니다."
+        )
+
+    dest.write_bytes(payload)
+    return dest
+
+
+def fit_video_to_frame(clip):
+    """AI 생성 영상 클립을 1080x1920에 꽉 차게 잘라 맞춘다(비율 왜곡 없이).
+
+    fit_to_frame(이미지용)과 같은 계산이지만 프레임마다 다시 계산할 필요 없이
+    moviepy의 Crop/Resize 이펙트로 한 번만 지시한다. 소리는 우리 나레이션
+    트랙만 쓰므로 공급자가 혹시 넣었을 수 있는 오디오는 버린다.
+    """
+    from moviepy import vfx
+
+    clip = clip.without_audio()
+    target_ratio = VIDEO_WIDTH / VIDEO_HEIGHT
+    src_ratio = clip.w / clip.h
+
+    if src_ratio > target_ratio:
+        new_width = int(clip.h * target_ratio)
+        x1 = (clip.w - new_width) // 2
+        clip = clip.with_effects([vfx.Crop(x1=x1, width=new_width, height=clip.h)])
+    else:
+        new_height = int(clip.w / target_ratio)
+        y1 = (clip.h - new_height) // 2
+        clip = clip.with_effects([vfx.Crop(y1=y1, width=clip.w, height=new_height)])
+
+    return clip.with_effects([vfx.Resize((VIDEO_WIDTH, VIDEO_HEIGHT))])
+
+
+# 장면 클립 길이와 그 장면에 배정된 나레이션 길이가 정확히 같을 일은 거의 없다
+# (AI 영상 생성은 5초 단위로 끊기고, 나레이션은 사람이 읽는 실측 길이라서). 그
+# 차이를 메우는 방법:
+# - 클립이 더 길면: 앞부분만 쓰고 자른다(뒷부분을 버리는 대신 나레이션에 맞는
+#   길이만큼만 보여준다 — 이야기 흐름이 나레이션을 따라가므로 이게 맞다).
+# - 클립이 더 짧으면: 마지막 프레임을 정지시켜 남는 시간을 채운다. 나레이션을
+#   빨리 감거나 마지막 장면을 무작정 늘리는 것보다, 이 방식이 화면이 부자연스럽게
+#   점프하지 않는 가장 값싼 보완이다. 차이가 크면(예: 5초 클립에 15초를 채워야
+#   하면) 정지 구간이 티 나므로, 장면 설계 단계에서애초에 나레이션 분량과 클립
+#   길이를 비슷하게 맞추는 게 근본 해법이다(후속 개선 대상).
+def match_clip_duration(clip, duration: float):
+    from moviepy import vfx
+
+    if clip.duration is None:
+        return clip.with_duration(duration)
+    if clip.duration > duration + 0.02:
+        return clip.subclipped(0, duration)
+    if clip.duration < duration - 0.02:
+        last_frame_t = max(clip.duration - 1.0 / (clip.fps or FPS), 0.0)
+        return clip.with_effects(
+            [vfx.Freeze(t=last_frame_t, total_duration=duration)]
+        )
+    return clip.with_duration(duration)
+
+
 # --------------------------------------------------------------------------
 # 영상 합성
 # --------------------------------------------------------------------------
@@ -533,23 +612,31 @@ def _ken_burns(clip, duration: float, mode: str):
 
 def build_scene_clip(
     scene: dict,
-    image_path: Path,
     duration: float,
     thumbnail_copy: str = "",
     ken_burns: bool = True,
     mood: str = "playful",
 ):
-    """장면 1개: Ken Burns 배경 + 단어별 자막 (+ 첫 장면이면 썸네일 카피)."""
-    from moviepy import CompositeVideoClip, ImageClip
+    """장면 1개: 배경(정지 이미지+Ken Burns 또는 AI 영상 클립) + 단어별 자막
+    (+ 첫 장면이면 썸네일 카피)."""
+    from moviepy import CompositeVideoClip, ImageClip, VideoFileClip
 
-    still = ImageClip(str(image_path)).with_duration(duration)
-    # Ken Burns는 매 프레임 리사이즈라 렌더 시간의 대부분을 차지한다. 자막·타이밍만
-    # 빠르게 확인하고 싶을 때는 끌 수 있게 해둔다.
-    background = (
-        _ken_burns(still, duration, scene.get("kenBurns", "in"))
-        if ken_burns
-        else still.with_position(("center", "center"))
-    )
+    if scene.get("video_path"):
+        # AI 영상 쇼츠: 이미 움직이는 클립이라 Ken Burns를 또 얹지 않는다(이중으로
+        # 줌까지 걸리면 어지럽다). 길이만 나레이션 타이밍에 맞춘다.
+        raw = VideoFileClip(str(scene["video_path"]))
+        background = match_clip_duration(
+            fit_video_to_frame(raw), duration
+        ).with_position(("center", "center"))
+    else:
+        still = ImageClip(str(scene["image_path"])).with_duration(duration)
+        # Ken Burns는 매 프레임 리사이즈라 렌더 시간의 대부분을 차지한다. 자막·타이밍만
+        # 빠르게 확인하고 싶을 때는 끌 수 있게 해둔다.
+        background = (
+            _ken_burns(still, duration, scene.get("kenBurns", "in"))
+            if ken_burns
+            else still.with_position(("center", "center"))
+        )
 
     layers = [background]
     for word in scene.get("words", []):
@@ -718,7 +805,6 @@ def build_video(
     clips = [
         build_scene_clip(
             scene,
-            scene["image_path"],
             scene["duration"],
             thumbnail_copy=copy_text if index == 0 else "",
             ken_burns=ken_burns,
@@ -883,6 +969,21 @@ def main() -> None:
     prepared: list[dict] = []
     for raw_scene in storyboard["scenes"]:
         index = raw_scene["index"]
+
+        if raw_scene.get("videoUrl"):
+            # AI 영상 쇼츠 결과물: 이미 만들어진 클립을 받아오기만 한다(생성 비용은
+            # 웹에서 장면을 만들 때 이미 치렀다 — 여기서 다시 만들지 않는다).
+            video_path = work_dir / "videos" / f"scene_{index}.mp4"
+            video_path.parent.mkdir(parents=True, exist_ok=True)
+            if video_path.exists() and not args.regenerate:
+                print(f"4-{index}) 장면 {index} 영상 클립 재사용")
+            else:
+                print(f"4-{index}) 장면 {index} 영상 클립 내려받는 중...")
+                config, token = auth()
+                download_video(config, token, raw_scene["videoUrl"], video_path)
+            prepared.append({**raw_scene, "video_path": video_path})
+            continue
+
         raw_path = work_dir / "images" / f"scene_{index}_raw.webp"
         image_path = work_dir / "images" / f"scene_{index}.png"
 

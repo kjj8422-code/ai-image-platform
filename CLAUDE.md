@@ -10,6 +10,9 @@
   조회 계열(`list_workspaces`, `show_generations`, `balance`)은 무료라 그냥 써도 된다.
 - **Anthropic API** — `ANTHROPIC_API_KEY`를 쓰는 호출 (`/api/shorts/from-images` 등).
 - **Replicate** — `REPLICATE_API_TOKEN`을 쓰는 이미지 생성·인페인팅·배경제거 전부.
+- **Runway** — `RUNWAYML_API_SECRET`을 쓰는 AI 영상 쇼츠의 실제 영상 생성. 서버에
+  `VIDEO_PROVIDER=runway`가 켜져 있을 때만 실제로 호출된다(기본값은 항상 mock,
+  비용 0원 — `src/lib/videoProvider.ts` 참고). 이 환경변수를 켜는 것 자체도 먼저 물어본다.
 
 물어볼 때는 **무엇을 몇 번 호출해서 대략 얼마가 드는지**를 같이 알려준다.
 사용자가 "해줘"라고 답한 그 작업 한 번에 대해서만 허락된 것으로 본다 —
