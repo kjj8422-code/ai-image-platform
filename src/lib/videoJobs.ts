@@ -228,6 +228,18 @@ export const createVideoJob = async (input: NewJobInput): Promise<VideoJob> => {
   return toJob(data as JobRow);
 };
 
+// "내가 만든 영상 목록" 화면용. planning 단계에서 실패해 장면이 하나도 없는
+// job까지 전부 보여줘야 사용자가 뭐가 잘못됐는지 알 수 있으므로 걸러내지 않는다.
+export const listJobsForUser = async (userId: string): Promise<VideoJob[]> => {
+  const { data, error } = await getSupabaseAdmin()
+    .from("video_jobs")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return ((data ?? []) as JobRow[]).map(toJob);
+};
+
 export const getOwnedJob = async (
   userId: string,
   jobId: string,
@@ -280,6 +292,19 @@ export const reorderScenes = async (
   }
 
   return listScenesForJob(jobId);
+};
+
+// "내가 만든 영상 목록" 화면이 job마다 썸네일·완성 개수를 보여주려고 쓴다.
+// job 하나마다 따로 조회하지 않고 한 번에 가져와 N+1을 피한다.
+export const listScenesForJobs = async (jobIds: string[]): Promise<VideoScene[]> => {
+  if (jobIds.length === 0) return [];
+  const { data, error } = await getSupabaseAdmin()
+    .from("video_scenes")
+    .select("*")
+    .in("job_id", jobIds)
+    .order("scene_index", { ascending: true });
+  if (error) throw error;
+  return ((data ?? []) as SceneRow[]).map(toScene);
 };
 
 export const getOwnedScene = async (

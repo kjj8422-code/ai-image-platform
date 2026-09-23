@@ -8,6 +8,8 @@ import {
   insertScenes,
   updateJob,
   listScenesForJob,
+  listJobsForUser,
+  listScenesForJobs,
   type VideoStyle,
 } from "@/lib/videoJobs";
 import {
@@ -19,6 +21,45 @@ import {
 import { getVideoProvider, getDefaultVideoProviderName } from "@/lib/videoProvider";
 
 export const maxDuration = 60;
+
+// "내가 만든 영상 목록" 화면용. 장면을 전부 내려보내면(각각 sourceImageUrl 등
+// 포함) 목록 하나 부르는 데 너무 커지므로, 썸네일 1장 + 완성 개수만 계산해서 준다.
+export async function GET(request: NextRequest) {
+  try {
+    const auth = await requireUser(request);
+    if ("error" in auth) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
+
+    const jobs = await listJobsForUser(auth.user.id);
+    const scenes = await listScenesForJobs(jobs.map((j) => j.id));
+    const scenesByJob = new Map<string, typeof scenes>();
+    for (const scene of scenes) {
+      const list = scenesByJob.get(scene.jobId) ?? [];
+      list.push(scene);
+      scenesByJob.set(scene.jobId, list);
+    }
+
+    const summaries = jobs.map((job) => {
+      const jobScenes = (scenesByJob.get(job.id) ?? []).sort(
+        (a, b) => a.sceneIndex - b.sceneIndex,
+      );
+      const first = jobScenes[0];
+      return {
+        ...job,
+        sceneCount: jobScenes.length,
+        readySceneCount: jobScenes.filter((s) => s.status === "ready").length,
+        thumbnailUrl: first ? (first.videoUrl ?? first.sourceImageUrl) : null,
+      };
+    });
+
+    return NextResponse.json({ jobs: summaries });
+  } catch (err) {
+    console.error("AI 영상 쇼츠 작업 목록 조회 오류:", err);
+    const message = err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
 
 const VIDEO_STYLES: readonly VideoStyle[] = [
   "comic",

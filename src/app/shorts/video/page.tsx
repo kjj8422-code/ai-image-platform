@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import { BGM_MOODS, type BgmMood } from "@/lib/shortsStoryboard";
@@ -138,6 +139,22 @@ const toOrientedBlob = async (
 };
 
 export default function VideoShortsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
+          <p className="text-sm text-zinc-500">불러오는 중...</p>
+        </div>
+      }
+    >
+      <VideoShortsPageInner />
+    </Suspense>
+  );
+}
+
+function VideoShortsPageInner() {
+  const searchParams = useSearchParams();
+  const jobIdFromUrl = searchParams.get("job");
   const { user, loading: userLoading } = useSupabaseUser();
 
   const [files, setFiles] = useState<File[]>([]);
@@ -197,6 +214,37 @@ export default function VideoShortsPage() {
     setFiles(next);
     setPreviews(next.map((f) => URL.createObjectURL(f)));
   };
+
+  const [loadingExistingJob, setLoadingExistingJob] = useState(Boolean(jobIdFromUrl));
+
+  // /shorts/video/history에서 "?job=<id>"로 들어오면 그 작업을 불러온다.
+  // 소유자가 아니거나 없는 작업이면 서버가 404를 주고, 그대로 새 작업 화면으로 둔다.
+  useEffect(() => {
+    if (!jobIdFromUrl || !user) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await authedFetch(`/api/shorts/video/jobs/${jobIdFromUrl}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? "작업을 불러오지 못했습니다.");
+        if (!cancelled) {
+          setJob(data.job);
+          setScenes(data.scenes);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setErrorMessage(err instanceof Error ? err.message : "작업을 불러오지 못했습니다.");
+        }
+      } finally {
+        if (!cancelled) setLoadingExistingJob(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [jobIdFromUrl, user]);
 
   // 작업이 진행 중일 때(계획 중이거나 장면이 생성 중일 때) 상태 조회 라우트를
   // 주기적으로 불러 화면을 최신으로 유지한다 — 이 호출 자체가 폴링 역할을 한다
@@ -499,8 +547,15 @@ export default function VideoShortsPage() {
     <div className="flex min-h-screen flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
       <div className="flex w-full max-w-2xl items-center justify-between">
         <h1 className="text-2xl font-semibold text-black dark:text-white">AI 영상 쇼츠 (베타)</h1>
-        <Link href="/shorts" className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">사진 쇼츠로 →</Link>
+        <div className="flex items-center gap-3">
+          <Link href="/shorts/video/history" className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">내 영상 목록</Link>
+          <Link href="/shorts" className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">사진 쇼츠로 →</Link>
+        </div>
       </div>
+
+      {loadingExistingJob && (
+        <p className="w-full max-w-2xl text-sm text-zinc-500">이전 작업을 불러오는 중...</p>
+      )}
 
       <div className="w-full max-w-2xl rounded-2xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
         베타 기능입니다. 장면 계획을 세운 뒤 <strong>1차: 무료 미리보기</strong>로 먼저 타이밍·순서·대사를
