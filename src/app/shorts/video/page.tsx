@@ -307,6 +307,47 @@ export default function VideoShortsPage() {
     }
   };
 
+  // 아직 안 만들었거나(대기) 실패한 장면은 생성 전에 나레이션/자막을 직접
+  // 고칠 수 있다 — 비용이 안 드는 작업이라 재생성과 분리해뒀다.
+  const [editedText, setEditedText] = useState<Record<number, string>>({});
+  const [savingScenes, setSavingScenes] = useState<Set<number>>(new Set());
+
+  const saveSceneEdit = async (scene: Scene) => {
+    if (!job) return;
+    const narration = editedText[scene.sceneIndex] ?? scene.narration ?? "";
+    setSavingScenes((prev) => new Set(prev).add(scene.sceneIndex));
+    setSceneActionError((prev) => ({ ...prev, [scene.sceneIndex]: "" }));
+    try {
+      const res = await authedFetch(
+        `/api/shorts/video/jobs/${job.id}/scenes/${scene.sceneIndex}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ narration, subtitle: narration }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "수정에 실패했습니다.");
+      setScenes((prev) => prev.map((s) => (s.sceneIndex === scene.sceneIndex ? data.scene : s)));
+      setEditedText((prev) => {
+        const next = { ...prev };
+        delete next[scene.sceneIndex];
+        return next;
+      });
+    } catch (err) {
+      setSceneActionError((prev) => ({
+        ...prev,
+        [scene.sceneIndex]: err instanceof Error ? err.message : "알 수 없는 오류",
+      }));
+    } finally {
+      setSavingScenes((prev) => {
+        const next = new Set(prev);
+        next.delete(scene.sceneIndex);
+        return next;
+      });
+    }
+  };
+
   const canSubmit = files.length >= MIN_IMAGES && !submitting;
 
   const usingRealProvider = job?.provider && job.provider !== "mock";
@@ -433,6 +474,10 @@ export default function VideoShortsPage() {
           <ol className="flex flex-col gap-3">
             {scenes.map((scene) => {
               const isBusy = busyScenes.has(scene.sceneIndex);
+              const isSaving = savingScenes.has(scene.sceneIndex);
+              const editable = scene.status === "queued" || scene.status === "failed";
+              const draft = editedText[scene.sceneIndex] ?? scene.narration ?? "";
+              const dirty = editable && draft !== (scene.narration ?? "");
               return (
                 <li key={scene.id} className="flex gap-3 rounded-lg border border-zinc-200 p-2 dark:border-zinc-800">
                   {scene.videoUrl ? (
@@ -445,15 +490,31 @@ export default function VideoShortsPage() {
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs text-zinc-400">장면 {scene.sceneIndex} · {SCENE_STATUS_LABEL[scene.status]}</span>
                     </div>
-                    {scene.narration && <p className="mt-0.5 text-zinc-700 dark:text-zinc-300">{scene.narration}</p>}
+                    {editable ? (
+                      <textarea
+                        value={draft}
+                        onChange={(e) =>
+                          setEditedText((prev) => ({ ...prev, [scene.sceneIndex]: e.target.value }))
+                        }
+                        rows={2}
+                        className="mt-0.5 w-full resize-y rounded border border-zinc-300 bg-transparent px-2 py-1 text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
+                      />
+                    ) : (
+                      scene.narration && <p className="mt-0.5 text-zinc-700 dark:text-zinc-300">{scene.narration}</p>
+                    )}
                     {scene.keyAction && <p className="mt-0.5 text-xs text-zinc-400">동작: {scene.keyAction}</p>}
                     {scene.error && <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">{scene.error}</p>}
                     {sceneActionError[scene.sceneIndex] && (
                       <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">{sceneActionError[scene.sceneIndex]}</p>
                     )}
                     <div className="mt-1 flex gap-2">
-                      {(scene.status === "queued" || scene.status === "failed") && (
-                        <button type="button" disabled={isBusy} onClick={() => void generateScene(scene, false)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
+                      {dirty && (
+                        <button type="button" disabled={isSaving} onClick={() => void saveSceneEdit(scene)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
+                          {isSaving ? "저장 중..." : "대사 저장"}
+                        </button>
+                      )}
+                      {editable && (
+                        <button type="button" disabled={isBusy || dirty} title={dirty ? "먼저 대사를 저장해주세요" : undefined} onClick={() => void generateScene(scene, false)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
                           {isBusy ? "요청 중..." : "장면 생성"}
                         </button>
                       )}
