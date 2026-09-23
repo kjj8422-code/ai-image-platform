@@ -117,6 +117,9 @@ DEFAULT_VOICE_STYLE = {
     "rate": NARRATION_RATE,
     "pitch": "+0Hz",
 }
+# 스토리보드에 bgmMood가 없을 때 쓰는 값. 자막 색·목소리 톤·BGM이 전부 이걸 보므로
+# 한 군데서만 정한다 — 예전엔 자막은 playful, BGM은 mystery로 갈려 서로 안 맞았다.
+DEFAULT_BGM_MOOD = "playful"
 # 장면 사이에는 쉼표만 넣는다. 마침표로 끊으면 TTS가 끝을 내려 읽어 단절감이 생긴다.
 # 단 줄이 이미 느낌표·물음표·말줄임표로 끝났다면 쉼표를 붙이지 않는다. "들어있어!,"
 # 처럼 붙여 보내면 음성엔진이 그 뒤의 쉼표를 보고 평범한 쉼으로 읽어버려서,
@@ -125,6 +128,17 @@ NARRATION_JOINER = ", "
 SENTENCE_ENDINGS = ("!", "?", ".", "…")
 KEN_BURNS_ZOOM = 1.12
 BGM_GAIN = 10 ** (-15 / 20)  # 요구사항: BGM -15dB 감쇄
+# 효과음은 장면이 바뀌는 순간을 찍어주는 짧은 큐다. 그런데 음원 라이브러리에는
+# 17초짜리 트레일러 붐처럼 긴 파일이 섞여 있어서, 그대로 깔면 큐가 아니라 배경음이
+# 되어 나레이션을 덮는다. 길이를 여기서 강제한다 — 파일을 일일이 손보는 것보다
+# 낫다. 나중에 어떤 음원을 새로 넣어도 같은 사고가 안 난다.
+SFX_MAX_SECONDS = 2.0
+SFX_FADE_SECONDS = 0.15  # 잘린 끝에서 딱 소리가 나지 않게
+# 음원마다 녹음 레벨이 제각각이다 — 트레일러 붐은 RMS 0.45로 나레이션(약 0.11)보다
+# 크고, UI 핑은 0.01로 안 들린다. 고정 배율을 곱하면 한쪽은 대사를 덮고 다른 쪽은
+# 묻히므로, 파일마다 실제 레벨을 재서 같은 높이로 맞춘다.
+SFX_TARGET_RMS = 0.05  # 나레이션보다 확실히 아래
+SFX_MAX_GAIN = 4.0  # 너무 조용한 파일을 억지로 키우면 잡음까지 커진다
 
 # 기계 음성은 여섯 줄을 전부 같은 세기로 읽는다. 사람이 썰을 풀 때는 훅에서 들뜨고,
 # 반전에서 터뜨리고, 마지막은 툭 떨어뜨리는데 그 강약이 통째로 없다. 읽힌 뒤에
@@ -593,6 +607,37 @@ def build_scene_clip(
     )
 
 
+def sfx_length(clip_duration: float, scene_duration: float) -> float:
+    """효과음을 실제로 몇 초만 쓸지 정한다. 짧은 파일은 그대로 둔다."""
+    return min(clip_duration, SFX_MAX_SECONDS, scene_duration)
+
+
+def sfx_gain(measured_rms: float) -> float:
+    """잰 레벨을 목표 레벨로 끌어올리거나 내리는 배율."""
+    if measured_rms <= 1e-6:  # 무음 파일 — 건드릴 것도 없고 0으로 나누면 터진다
+        return 1.0
+    return min(SFX_TARGET_RMS / measured_rms, SFX_MAX_GAIN)
+
+
+def measure_rms(path: Path) -> float:
+    """음원의 실제 음량을 잰다. 실제로 쓰는 앞부분만 본다.
+
+    MoviePy의 to_soundarray는 1초 단위 버퍼를 전제해서, 1초보다 짧은 파일에 쓰면
+    t=1.0초를 읽으려다 IOError로 죽는다(laugh 0.74초, pop 0.67초가 여기 걸렸다).
+    시간으로 찾아 읽는 대신 프레임을 통째로 읽어서 그 버그를 피한다.
+    """
+    import numpy as np
+    from moviepy import AudioFileClip
+
+    with AudioFileClip(str(path)) as clip:
+        reader = clip.reader
+        reader.seek(0)
+        frames = reader.read_chunk(
+            min(reader.n_frames, int(clip.fps * SFX_MAX_SECONDS))
+        )
+    return float(np.sqrt((frames**2).mean()))
+
+
 def build_audio(
     scenes: list[dict],
     total_duration: float,
@@ -632,7 +677,14 @@ def build_audio(
         if cue and cue != "none":
             sfx_path = SFX_DIR / f"{cue}.mp3"
             if sfx_path.exists():
-                tracks.append(AudioFileClip(str(sfx_path)).with_start(scene["start"]))
+                clip = AudioFileClip(str(sfx_path))
+                clip = clip.subclipped(
+                    0, sfx_length(clip.duration, scene["duration"])
+                ).with_effects([afx.AudioFadeOut(SFX_FADE_SECONDS)])
+                gain = sfx_gain(measure_rms(sfx_path))
+                tracks.append(
+                    clip.with_volume_scaled(gain).with_start(scene["start"])
+                )
             else:
                 print(f"    (효과음 없음: {sfx_path.name} — 건너뜀)")
 
@@ -661,7 +713,7 @@ def build_video(
     # CompositeVideoClip으로 감싸면 1.6초짜리 자막 하나 때문에 모든 프레임이 합성
     # 단계를 한 번 더 거치게 되어 렌더가 눈에 띄게 느려진다.
     copy_text = storyboard.get("thumbnailCopy", "").strip()
-    mood = storyboard.get("bgmMood", "playful")
+    mood = storyboard.get("bgmMood", DEFAULT_BGM_MOOD)
 
     clips = [
         build_scene_clip(
@@ -680,7 +732,7 @@ def build_video(
         build_audio(
             scenes,
             video.duration,
-            storyboard.get("bgmMood", "mystery"),
+            storyboard.get("bgmMood", DEFAULT_BGM_MOOD),
             narration_path,
         )
     )
@@ -766,9 +818,19 @@ def main() -> None:
     if not FONT_PATH.exists():
         sys.exit(f"오류: 자막용 한글 폰트를 찾을 수 없습니다 -> {FONT_PATH}")
 
-    config = load_config()
-    print("1) 로그인 중...")
-    token = sign_in(config)
+    # 설정을 읽고 로그인하는 건 서버를 실제로 부르는 순간까지 미룬다. 이미 받아둔
+    # 소재로 영상만 다시 뽑을 때(--storyboard + 이미지 재사용)는 네트워크가 아예
+    # 필요 없는데, 먼저 로그인해버리면 계정 정보가 없는 PC에서 그 재실행이 통째로
+    # 막힌다 — 문서에 적어둔 사용법인데 실제로는 못 쓰고 있었다.
+    _auth: dict = {}
+
+    def auth() -> tuple[dict, str]:
+        if not _auth:
+            config = load_config()
+            print("1) 로그인 중...")
+            _auth["config"] = config
+            _auth["token"] = sign_in(config)
+        return _auth["config"], _auth["token"]
 
     if args.project:
         storyboard = json.loads(Path(args.project).read_text(encoding="utf-8"))
@@ -781,7 +843,7 @@ def main() -> None:
         character = load_character(args.character)
         if character:
             print(f"   캐릭터: {args.character}")
-        storyboard = fetch_storyboard(config, token, args.topic, character)
+        storyboard = fetch_storyboard(*auth(), args.topic, character)
 
     work_dir = Path(args.out_dir) / slugify(
         args.topic or storyboard.get("thumbnailCopy", "shorts")
@@ -795,7 +857,29 @@ def main() -> None:
     print(f"   썸네일 카피: {storyboard.get('thumbnailCopy')}")
     print(f"   BGM 분위기: {storyboard.get('bgmMood')}")
 
-    # 이미지를 먼저 다 준비한다. 나레이션은 그다음에 통째로 한 번 읽힌다.
+    # 나레이션을 먼저 만든다. 공짜인데다 장면별로 쪼개다 실패할 수 있는 단계라서,
+    # 이걸 이미지(장당 실제 비용) 앞에 두어야 실패해도 돈이 안 나간다.
+    narration_path = work_dir / "audio" / "narration.mp3"
+    words_path = work_dir / "audio" / "narration.words.json"
+    if narration_path.exists() and words_path.exists() and not args.regenerate:
+        print("3) 나레이션 재사용")
+        per_scene_words = json.loads(words_path.read_text(encoding="utf-8"))
+    else:
+        mood = storyboard.get("bgmMood", DEFAULT_BGM_MOOD)
+        style = dict(VOICE_STYLES.get(mood, DEFAULT_VOICE_STYLE))
+        if args.voice:
+            style["voice"] = args.voice
+        print(
+            f"3) 나레이션 {len(storyboard['scenes'])}줄을 한 번에 합성하는 중... "
+            f"({mood} 톤 · {style['voice']} · 속도 {style['rate']} · 높이 {style['pitch']})"
+        )
+        per_scene_words = synthesize_all_narrations(
+            [s["narration"] for s in storyboard["scenes"]], narration_path, style
+        )
+        words_path.write_text(
+            json.dumps(per_scene_words, ensure_ascii=False), encoding="utf-8"
+        )
+
     prepared: list[dict] = []
     for raw_scene in storyboard["scenes"]:
         index = raw_scene["index"]
@@ -805,14 +889,16 @@ def main() -> None:
         # 같은 폴더로 다시 돌리면 이미 만든 소재를 재사용한다. 이미지는 생성할 때마다
         # 실제로 비용이 나가므로, 자막·효과음만 손보려고 재실행할 때 또 낼 이유가 없다.
         if image_path.exists() and not args.regenerate:
-            print(f"3-{index}) 장면 {index} 이미지 재사용")
+            print(f"4-{index}) 장면 {index} 이미지 재사용")
         elif raw_scene.get("imageUrl"):
             # 웹에서 올린 이미지는 이미 있으니 받아오기만 하면 된다(생성 비용 없음).
-            print(f"3-{index}) 장면 {index} 업로드 이미지 내려받는 중...")
+            print(f"4-{index}) 장면 {index} 업로드 이미지 내려받는 중...")
+            config, token = auth()
             download_image(config, token, raw_scene["imageUrl"], raw_path)
             fit_to_frame(raw_path, image_path)
         else:
-            print(f"3-{index}) 장면 {index} 이미지 생성 중...")
+            print(f"4-{index}) 장면 {index} 이미지 생성 중...")
+            config, token = auth()
             download_image(
                 config,
                 token,
@@ -822,27 +908,6 @@ def main() -> None:
             fit_to_frame(raw_path, image_path)
 
         prepared.append({**raw_scene, "image_path": image_path})
-
-    narration_path = work_dir / "audio" / "narration.mp3"
-    words_path = work_dir / "audio" / "narration.words.json"
-    if narration_path.exists() and words_path.exists() and not args.regenerate:
-        print("4) 나레이션 재사용")
-        per_scene_words = json.loads(words_path.read_text(encoding="utf-8"))
-    else:
-        mood = storyboard.get("bgmMood", "playful")
-        style = dict(VOICE_STYLES.get(mood, DEFAULT_VOICE_STYLE))
-        if args.voice:
-            style["voice"] = args.voice
-        print(
-            f"4) 나레이션 {len(prepared)}줄을 한 번에 합성하는 중... "
-            f"({mood} 톤 · {style['voice']} · 속도 {style['rate']} · 높이 {style['pitch']})"
-        )
-        per_scene_words = synthesize_all_narrations(
-            [s["narration"] for s in prepared], narration_path, style
-        )
-        words_path.write_text(
-            json.dumps(per_scene_words, ensure_ascii=False), encoding="utf-8"
-        )
 
     from moviepy import AudioFileClip
 
