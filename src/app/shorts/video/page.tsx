@@ -9,12 +9,11 @@ import { useSupabaseUser } from "@/lib/useSupabaseUser";
 const MIN_IMAGES = 5;
 const MAX_IMAGES = 15;
 
-// 사진 쇼츠와 같은 이유로 업로드 전 1280px로 줄인다(Vercel 요청 본문 상한 회피).
-// 알려진 한계: 그래서 영상 생성에도 원본이 아니라 이 축소본이 들어간다 — 화질이
-// 사진 원본보다 떨어질 수 있다. 원본을 그대로 보존해 영상 생성에 쓰는 업로드
-// 경로는 후속 작업이다(서명된 URL로 Storage에 직접 올리는 방식이 필요).
-const MAX_EDGE = 1280;
-const JPEG_QUALITY = 0.82;
+// 영상 생성 모델에 넣을 입력이 곧 결과 화질이라, 사진 쇼츠처럼 1280px로 줄이지
+// 않고 원본 해상도를 그대로 쓴다. 대신 서버(Vercel 함수, 요청 본문 4.5MB 상한)를
+// 거치지 않고 서명된 URL로 Supabase Storage에 직접 올린다 — /api/shorts/video/upload-url
+// 참고. 재인코딩 시에는 화질 손실을 최소화하려고 높은 JPEG 품질을 쓴다.
+const JPEG_QUALITY = 0.95;
 
 type JobStyle = "comic" | "jeju_travel" | "emotional" | "product_ad";
 
@@ -99,19 +98,28 @@ const loadImage = async (file: File): Promise<{ source: CanvasImageSource; width
   return { source: img, width: img.naturalWidth, height: img.naturalHeight, release: () => URL.revokeObjectURL(objectUrl) };
 };
 
-const downscaleToDataUrl = async (file: File): Promise<string> => {
+// EXIF 회전 정보를 반영해 캔버스에 다시 그린다(loadImage가 이미 방향을 바로잡아
+// 주므로 그대로 그리기만 하면 된다). 크기는 원본 그대로 유지한다 — 이게 사진
+// 쇼츠의 downscaleToDataUrl과 다른 점이다.
+const toOrientedBlob = async (
+  file: File,
+): Promise<{ blob: Blob; extension: string }> => {
   const image = await loadImage(file);
   try {
-    const scale = Math.min(1, MAX_EDGE / Math.max(image.width, image.height));
-    const width = Math.max(1, Math.round(image.width * scale));
-    const height = Math.max(1, Math.round(image.height * scale));
     const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
+    canvas.width = image.width;
+    canvas.height = image.height;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error(`${file.name} 을(를) 변환하지 못했습니다.`);
-    ctx.drawImage(image.source, 0, 0, width, height);
-    return canvas.toDataURL("image/jpeg", JPEG_QUALITY);
+    ctx.drawImage(image.source, 0, 0, image.width, image.height);
+
+    const isPng = file.type === "image/png";
+    const mime = isPng ? "image/png" : "image/jpeg";
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, mime, isPng ? undefined : JPEG_QUALITY),
+    );
+    if (!blob) throw new Error(`${file.name} 을(를) 변환하지 못했습니다.`);
+    return { blob, extension: isPng ? "png" : "jpg" };
   } finally {
     image.release();
   }
@@ -208,20 +216,37 @@ export default function VideoShortsPage() {
     idempotencyKeyRef.current = crypto.randomUUID();
 
     try {
-      const imageUrls: string[] = [];
+      // 1) 원본 해상도를 유지한 채(EXIF 방향만 바로잡아) blob으로 변환한다.
+      const blobs: { blob: Blob; extension: string }[] = [];
       for (const [index, file] of files.entries()) {
         setUploadProgress(index);
-        const dataUrl = await downscaleToDataUrl(file);
-        const res = await authedFetch("/api/shorts/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageDataUrls: [dataUrl] }),
-        });
-        const result = await res.json();
-        if (!res.ok || !result.imageUrls) {
-          throw new Error(result.error ?? "업로드에 실패했습니다.");
-        }
-        imageUrls.push(...result.imageUrls);
+        blobs.push(await toOrientedBlob(file));
+      }
+
+      // 2) 서명된 업로드 URL을 한 번에 발급받는다(우리 서버는 URL만 내주고,
+      // 실제 파일 바이트는 아래 3)에서 브라우저가 Storage로 직접 보낸다).
+      const urlRes = await authedFetch("/api/shorts/video/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ extensions: blobs.map((b) => b.extension) }),
+      });
+      const urlData = await urlRes.json();
+      if (!urlRes.ok || !urlData.uploads) {
+        throw new Error(urlData.error ?? "업로드 준비에 실패했습니다.");
+      }
+      const uploads: { path: string; token: string; publicUrl: string }[] =
+        urlData.uploads;
+
+      // 3) 각 파일을 자신의 서명된 URL로 직접 올린다.
+      const imageUrls: string[] = [];
+      for (const [index, { blob }] of blobs.entries()) {
+        setUploadProgress(index);
+        const { path, token } = uploads[index];
+        const { error } = await supabase.storage
+          .from("gallery")
+          .uploadToSignedUrl(path, token, blob, { contentType: blob.type });
+        if (error) throw new Error(`${files[index].name} 업로드 실패: ${error.message}`);
+        imageUrls.push(uploads[index].publicUrl);
       }
       setUploadProgress(files.length);
 
