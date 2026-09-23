@@ -73,8 +73,12 @@ type Scene = {
   cameraMotion: string | null;
   status: SceneStatus;
   videoUrl: string | null;
+  providerModel: string | null;
   error: string | null;
 };
+
+const isMockScene = (scene: Scene): boolean =>
+  scene.providerModel === "mock-echo-v0" || scene.providerModel == null;
 
 const money = (cents: number | null): string =>
   cents == null ? "-" : `$${(cents / 100).toFixed(2)}`;
@@ -285,9 +289,23 @@ export default function VideoShortsPage() {
     }
   };
 
-  const generateScene = async (scene: Scene, regenerate: boolean) => {
+  // provider: "mock" = 1차 무료 미리보기, "real" = 2차 실제 생성(비용 발생).
+  // 이미 ready/selected인 장면을 다시 제출하는 거라면(=미리보기를 진짜로 바꾸는
+  // 것도 포함) regenerate:true가 필요하다.
+  const generateScene = async (
+    scene: Scene,
+    provider: "mock" | "real",
+    options: { silent?: boolean } = {},
+  ) => {
     if (!job) return;
-    if (regenerate && !confirm("이미 만든 장면을 다시 생성하면 비용이 다시 듭니다. 계속할까요?")) {
+    const regenerate = scene.status === "ready" || scene.status === "selected";
+    if (
+      provider === "real" &&
+      !options.silent &&
+      !confirm(
+        `장면 ${scene.sceneIndex}을(를) 실제로 생성합니다 (예상 비용 ${money(perSceneCostCents)}). 계속할까요?`,
+      )
+    ) {
       return;
     }
     setBusyScenes((prev) => new Set(prev).add(scene.sceneIndex));
@@ -298,23 +316,91 @@ export default function VideoShortsPage() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ regenerate }),
+          body: JSON.stringify({ regenerate, provider }),
         },
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "장면 생성 요청에 실패했습니다.");
       setScenes((prev) => prev.map((s) => (s.sceneIndex === scene.sceneIndex ? data.scene : s)));
+      return true;
     } catch (err) {
       setSceneActionError((prev) => ({
         ...prev,
         [scene.sceneIndex]: err instanceof Error ? err.message : "알 수 없는 오류",
       }));
+      return false;
     } finally {
       setBusyScenes((prev) => {
         const next = new Set(prev);
         next.delete(scene.sceneIndex);
         return next;
       });
+    }
+  };
+
+  const [batchBusy, setBatchBusy] = useState<"mock" | "real" | null>(null);
+
+  // "1차: 무료 미리보기" — 아직 안 만들었거나 실패한 장면 전부를 mock으로.
+  // "2차: 진짜 최종 생성" — 전체 장면을 실제 공급자로(이미 만든 미리보기는
+  // 재생성 취급). 한 번만 확인받고 나머지는 조용히 진행한다.
+  const batchGenerate = async (provider: "mock" | "real") => {
+    if (!job) return;
+    const targets =
+      provider === "mock"
+        ? scenes.filter((s) => s.status === "queued" || s.status === "failed")
+        : scenes.filter((s) => s.status !== "generating");
+    if (targets.length === 0) return;
+
+    if (provider === "real") {
+      const estimate = money(job.estimatedCostCents);
+      if (
+        !confirm(
+          `장면 ${targets.length}개를 실제로 생성합니다. 예상 총 비용 약 ${estimate}. 계속할까요?`,
+        )
+      ) {
+        return;
+      }
+    }
+
+    setBatchBusy(provider);
+    try {
+      for (const scene of targets) {
+        // 공급자 쪽 요청 속도 제한을 지키려고 병렬이 아니라 순차로 진행한다.
+        await generateScene(scene, provider, { silent: true });
+      }
+    } finally {
+      setBatchBusy(null);
+    }
+  };
+
+  const [reorderBusy, setReorderBusy] = useState(false);
+
+  const moveScene = async (currentIndex: number, direction: -1 | 1) => {
+    if (!job) return;
+    const otherIndex = currentIndex + direction;
+    if (otherIndex < 0 || otherIndex >= scenes.length) return;
+    const order = scenes.map((s) => s.id);
+    [order[currentIndex], order[otherIndex]] = [order[otherIndex], order[currentIndex]];
+
+    setReorderBusy(true);
+    setErrorMessage("");
+    try {
+      const res = await authedFetch(`/api/shorts/video/jobs/${job.id}/scenes/reorder`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "순서를 바꾸지 못했습니다.");
+      setScenes(data.scenes);
+      // 장면 번호가 다시 매겨지므로, 번호로 연결해둔 임시 상태는 비운다
+      // (엉뚱한 장면에 붙는 걸 막기 위해).
+      setEditedText({});
+      setSceneActionError({});
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "순서 변경 중 오류가 발생했습니다.");
+    } finally {
+      setReorderBusy(false);
     }
   };
 
@@ -361,7 +447,12 @@ export default function VideoShortsPage() {
 
   const canSubmit = files.length >= MIN_IMAGES && !submitting;
 
-  const usingRealProvider = job?.provider && job.provider !== "mock";
+  // 모든 장면이 길이가 같아(SCENE_DURATION_SECONDS) job.estimatedCostCents를
+  // 장면 수로 나누면 장면 1개의 실제 생성 비용과 정확히 같다 — 버튼에 그대로 쓴다.
+  const perSceneCostCents =
+    job?.estimatedCostCents != null && scenes.length > 0
+      ? Math.round(job.estimatedCostCents / scenes.length)
+      : null;
 
   const readyScenes = scenes.filter((s) => s.status === "ready");
   const allScenesReady = scenes.length > 0 && readyScenes.length === scenes.length;
@@ -412,9 +503,9 @@ export default function VideoShortsPage() {
       </div>
 
       <div className="w-full max-w-2xl rounded-2xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-        베타 기능입니다. 기본 설정은 비용이 들지 않는 모의(mock) 생성이며, 실제 영상 생성 공급자를
-        서버에 연결하기 전까지는 진짜 동영상이 만들어지지 않습니다. 나레이션·자막·배경음악을 하나의
-        MP4로 합치는 마지막 단계는 아직 없고, 지금은 장면별 클립 생성까지만 지원합니다.
+        베타 기능입니다. 장면 계획을 세운 뒤 <strong>1차: 무료 미리보기</strong>로 먼저 타이밍·순서·대사를
+        확인하고, 마음에 들면 <strong>2차: 진짜 최종 생성</strong>으로 실제 비용을 들여 영상을 만드세요.
+        최종 MP4(나레이션·자막·배경음악 합성)는 PC에서 뽑습니다.
       </div>
 
       <section className="flex w-full max-w-2xl flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
@@ -489,66 +580,113 @@ export default function VideoShortsPage() {
           </div>
 
           <div className="flex flex-wrap gap-4 rounded-lg bg-zinc-100 p-3 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-400">
-            <span>공급자: {job.provider ?? "-"}{usingRealProvider ? "" : " (비용 없음)"}</span>
-            <span>예상 비용: {money(job.estimatedCostCents)}</span>
+            <span>예상 총 비용(실제 생성 기준): {money(job.estimatedCostCents)}</span>
             <span>예산 상한: {money(job.maxBudgetCents)}</span>
-            <span>현재까지 사용: {money(job.spentCents)}</span>
+            <span>실제로 쓴 금액: {money(job.spentCents)}</span>
           </div>
           {job.error && <p className="text-sm text-red-600 dark:text-red-400">{job.error}</p>}
 
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={batchBusy !== null}
+              onClick={() => void batchGenerate("mock")}
+              className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+            >
+              {batchBusy === "mock" ? "미리보기 생성 중..." : "1차: 전체 무료 미리보기 ($0.00)"}
+            </button>
+            <button
+              type="button"
+              disabled={batchBusy !== null || scenes.length === 0}
+              onClick={() => void batchGenerate("real")}
+              className="rounded-full bg-black px-4 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-black"
+            >
+              {batchBusy === "real"
+                ? "실제 생성 중..."
+                : `2차: 전체 진짜 최종 생성 (${money(job.estimatedCostCents)})`}
+            </button>
+          </div>
+
           <ol className="flex flex-col gap-3">
-            {scenes.map((scene) => {
+            {scenes.map((scene, index) => {
               const isBusy = busyScenes.has(scene.sceneIndex);
               const isSaving = savingScenes.has(scene.sceneIndex);
-              const editable = scene.status === "queued" || scene.status === "failed";
               const draft = editedText[scene.sceneIndex] ?? scene.narration ?? "";
-              const dirty = editable && draft !== (scene.narration ?? "");
+              const dirty = draft !== (scene.narration ?? "");
+              const needsFirstGenerate = scene.status === "queued" || scene.status === "failed";
               return (
                 <li key={scene.id} className="flex gap-3 rounded-lg border border-zinc-200 p-2 dark:border-zinc-800">
-                  {scene.videoUrl ? (
-                    <video src={scene.videoUrl} controls className="h-32 w-20 shrink-0 rounded object-cover" />
-                  ) : (
-                    // eslint-disable-next-line @next/next/no-img-element -- 원본 스토리지 URL
-                    <img src={scene.sourceImageUrl} alt={`장면 ${scene.sceneIndex}`} className="h-32 w-20 shrink-0 rounded object-cover" />
-                  )}
+                  <div className="flex shrink-0 flex-col items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={reorderBusy || index === 0}
+                      onClick={() => void moveScene(index, -1)}
+                      className="rounded border border-zinc-300 px-1.5 text-xs leading-5 hover:bg-zinc-100 disabled:opacity-30 dark:border-zinc-700 dark:hover:bg-zinc-900"
+                      title="위로"
+                    >
+                      ▲
+                    </button>
+                    {scene.videoUrl ? (
+                      <video src={scene.videoUrl} controls className="h-32 w-20 rounded object-cover" />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element -- 원본 스토리지 URL
+                      <img src={scene.sourceImageUrl} alt={`장면 ${scene.sceneIndex}`} className="h-32 w-20 rounded object-cover" />
+                    )}
+                    <button
+                      type="button"
+                      disabled={reorderBusy || index === scenes.length - 1}
+                      onClick={() => void moveScene(index, 1)}
+                      className="rounded border border-zinc-300 px-1.5 text-xs leading-5 hover:bg-zinc-100 disabled:opacity-30 dark:border-zinc-700 dark:hover:bg-zinc-900"
+                      title="아래로"
+                    >
+                      ▼
+                    </button>
+                  </div>
                   <div className="min-w-0 flex-1 text-sm">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-zinc-400">장면 {scene.sceneIndex} · {SCENE_STATUS_LABEL[scene.status]}</span>
+                      <span className="text-xs text-zinc-400">
+                        장면 {scene.sceneIndex} · {SCENE_STATUS_LABEL[scene.status]}
+                        {scene.status === "ready" && (isMockScene(scene) ? " (미리보기)" : " (실제 생성)")}
+                      </span>
                     </div>
-                    {editable ? (
-                      <textarea
-                        value={draft}
-                        onChange={(e) =>
-                          setEditedText((prev) => ({ ...prev, [scene.sceneIndex]: e.target.value }))
-                        }
-                        rows={2}
-                        className="mt-0.5 w-full resize-y rounded border border-zinc-300 bg-transparent px-2 py-1 text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
-                      />
-                    ) : (
-                      scene.narration && <p className="mt-0.5 text-zinc-700 dark:text-zinc-300">{scene.narration}</p>
-                    )}
+                    {/* 나레이션은 영상 클립과 분리된 데이터라 장면 상태와 무관하게 언제나 고칠 수 있다. */}
+                    <textarea
+                      value={draft}
+                      onChange={(e) =>
+                        setEditedText((prev) => ({ ...prev, [scene.sceneIndex]: e.target.value }))
+                      }
+                      rows={2}
+                      placeholder="나레이션/대사"
+                      className="mt-0.5 w-full resize-y rounded border border-zinc-300 bg-transparent px-2 py-1 text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
+                    />
                     {scene.keyAction && <p className="mt-0.5 text-xs text-zinc-400">동작: {scene.keyAction}</p>}
                     {scene.error && <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">{scene.error}</p>}
                     {sceneActionError[scene.sceneIndex] && (
                       <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">{sceneActionError[scene.sceneIndex]}</p>
                     )}
-                    <div className="mt-1 flex gap-2">
+                    <div className="mt-1 flex flex-wrap gap-2">
                       {dirty && (
                         <button type="button" disabled={isSaving} onClick={() => void saveSceneEdit(scene)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
                           {isSaving ? "저장 중..." : "대사 저장"}
                         </button>
                       )}
-                      {editable && (
-                        <button type="button" disabled={isBusy || dirty} title={dirty ? "먼저 대사를 저장해주세요" : undefined} onClick={() => void generateScene(scene, false)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
-                          {isBusy ? "요청 중..." : "장면 생성"}
+                      {needsFirstGenerate && (
+                        <button type="button" disabled={isBusy} onClick={() => void generateScene(scene, "mock")} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
+                          {isBusy ? "요청 중..." : "미리보기 생성 ($0.00)"}
                         </button>
                       )}
                       {scene.status === "ready" && (
                         <>
                           <a href={scene.videoUrl ?? "#"} download className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">다운로드</a>
-                          <button type="button" disabled={isBusy} onClick={() => void generateScene(scene, true)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
-                            다시 만들기 (재과금)
-                          </button>
+                          {isMockScene(scene) ? (
+                            <button type="button" disabled={isBusy} onClick={() => void generateScene(scene, "real")} className="rounded-full bg-black px-3 py-1 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-black">
+                              진짜로 생성 (유료 {money(perSceneCostCents)})
+                            </button>
+                          ) : (
+                            <button type="button" disabled={isBusy} onClick={() => void generateScene(scene, "real")} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
+                              다시 만들기 (재과금 {money(perSceneCostCents)})
+                            </button>
+                          )}
                         </>
                       )}
                     </div>

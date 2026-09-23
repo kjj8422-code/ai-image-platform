@@ -20,18 +20,34 @@ export class BudgetExceededError extends Error {
   }
 }
 
+// 한 장면 안에서도 "1차 무료 미리보기(mock)"로 먼저 돌려보고, 마음에 들면
+// "2차 최종 생성"으로 같은 장면을 실제 공급자로 다시 제출할 수 있다 — 그래서
+// 공급자를 job 하나에 고정하지 않고 제출마다 고를 수 있게 한다(providerOverride).
+// 문제는 poll(=advanceScene)할 때도 "그 장면을 실제로 어느 공급자에 보냈는지"를
+// 알아야 하는데, job.provider 하나로는 장면마다 다를 수 있는 걸 못 담는다.
+// 그래서 이미 제출된 장면은 provider_model(예: "mock-echo-v0" vs "gen4_turbo")로
+// 역산한다 — 새 컬럼 없이 기존 데이터로 정확히 알아낼 수 있어서다.
+export const REAL_VIDEO_PROVIDER_NAME = "runway";
+
+const providerNameForScene = (job: VideoJob, scene: VideoScene): string => {
+  if (scene.providerModel === "mock-echo-v0") return "mock";
+  if (scene.providerModel) return REAL_VIDEO_PROVIDER_NAME; // 지금 실제 공급자는 이거 하나뿐
+  return job.provider ?? getDefaultVideoProviderName();
+};
+
 // 이미 생성 중인 장면을 다시 제출하지 않는다(멱등) — 연속 클릭·중복 요청 방지.
 // ready/selected 상태를 다시 제출하는 건 "재생성"이라 호출부(API 라우트)가
 // 명시적 확인을 받은 뒤에만 이 함수를 불러야 한다.
 export const submitScene = async (
   job: VideoJob,
   scene: VideoScene,
+  providerOverride?: string,
 ): Promise<VideoScene> => {
   if (scene.status === "generating") {
     return scene;
   }
 
-  const providerName = job.provider ?? getDefaultVideoProviderName();
+  const providerName = providerOverride ?? job.provider ?? getDefaultVideoProviderName();
   const provider = getVideoProvider(providerName);
   const estimatedCostCents = provider.estimateCostCents(scene.durationTargetSeconds);
 
@@ -100,9 +116,13 @@ export const advanceScene = async (
     return scene;
   }
 
-  const providerName = job.provider ?? getDefaultVideoProviderName();
+  const providerName = providerNameForScene(job, scene);
   const provider = getVideoProvider(providerName);
   const nowIso = new Date().toISOString();
+  // mock은 UI에서 "1차 무료 미리보기"로 쓰라고 만든 것이라 실제 돈이 안 나간다.
+  // job.spent_cents(=예산 상한과 비교하는 값)를 mock 결과로 채우면, 미리보기만
+  // 했는데도 예산이 소진돼 정작 "2차 진짜 생성"이 막히는 사고가 난다.
+  const isRealProvider = providerName !== "mock";
 
   let result;
   try {
@@ -133,7 +153,7 @@ export const advanceScene = async (
       // provider_raw_url을 보관해 둔다.
       const message = err instanceof Error ? err.message : String(err);
       console.error(`영상 클립 저장 실패 (scene ${scene.id}):`, err);
-      await incrementJobSpentCents(job.id, result.actualCostCents);
+      if (isRealProvider) await incrementJobSpentCents(job.id, result.actualCostCents);
       return updateScene(scene.id, {
         status: "failed",
         error: `영상 생성은 완료됐지만 저장에 실패했습니다: ${message}`,
@@ -147,7 +167,7 @@ export const advanceScene = async (
       });
     }
 
-    await incrementJobSpentCents(job.id, result.actualCostCents);
+    if (isRealProvider) await incrementJobSpentCents(job.id, result.actualCostCents);
     return updateScene(scene.id, {
       status: "ready",
       videoUrl: permanentUrl,
@@ -167,7 +187,7 @@ export const advanceScene = async (
   // 적어둔 예상 비용(pendingEntry.costCents)을 근사치로 쓴다. 실제 청구 내역은
   // 공급자 대시보드가 정본이다.
   const chargedAmount = result.charged ? (pendingEntry?.costCents ?? 0) : 0;
-  if (chargedAmount > 0) {
+  if (isRealProvider && chargedAmount > 0) {
     await incrementJobSpentCents(job.id, chargedAmount);
   }
   return updateScene(scene.id, {

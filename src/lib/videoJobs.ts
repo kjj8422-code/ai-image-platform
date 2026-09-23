@@ -252,6 +252,36 @@ export const listScenesForJob = async (jobId: string): Promise<VideoScene[]> => 
   return ((data ?? []) as SceneRow[]).map(toScene);
 };
 
+// 장면 순서를 바꾼다. scene_index가 (job_id, scene_index) 유니크 제약이 걸린
+// "진짜 자리"라서, 새 순서를 그대로 1..N으로 덮어쓰면 중간에 값이 겹치는 순간이
+// 생긴다(예: 1번을 2번 자리로 옮기는 동안 기존 2번이 아직 2번이면 충돌). 그래서
+// 먼저 전부 음수(임시) 값으로 옮겨 자리를 비운 뒤, 새 순서대로 1..N을 매긴다.
+export const reorderScenes = async (
+  jobId: string,
+  orderedSceneIds: string[],
+): Promise<VideoScene[]> => {
+  const supabaseAdmin = getSupabaseAdmin();
+
+  for (const [i, sceneId] of orderedSceneIds.entries()) {
+    const { error } = await supabaseAdmin
+      .from("video_scenes")
+      .update({ scene_index: -(i + 1) })
+      .eq("id", sceneId)
+      .eq("job_id", jobId);
+    if (error) throw error;
+  }
+  for (const [i, sceneId] of orderedSceneIds.entries()) {
+    const { error } = await supabaseAdmin
+      .from("video_scenes")
+      .update({ scene_index: i + 1, updated_at: new Date().toISOString() })
+      .eq("id", sceneId)
+      .eq("job_id", jobId);
+    if (error) throw error;
+  }
+
+  return listScenesForJob(jobId);
+};
+
 export const getOwnedScene = async (
   userId: string,
   jobId: string,
