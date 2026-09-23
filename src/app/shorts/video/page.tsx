@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
+import { BGM_MOODS, type BgmMood } from "@/lib/shortsStoryboard";
 
 // 사진 쇼츠(../page.tsx)와 같은 업로드 제약 재사용.
 const MIN_IMAGES = 5;
@@ -24,13 +25,20 @@ const STYLE_OPTIONS: { value: JobStyle; label: string }[] = [
   { value: "product_ad", label: "제품 광고" },
 ];
 
-// build_shorts.py의 BGM_DIR에 있는 무드 중에서 스타일과 톤이 가까운 것을 고른다.
-// 사용자가 직접 고르는 UI는 후속 범위 — 지금은 스타일 하나에 무드 하나씩 고정.
-const BGM_MOOD_BY_STYLE: Record<JobStyle, string> = {
+// build_shorts.py의 BGM_DIR에 있는 무드 중 스타일과 톤이 가까운 것을 기본값으로
+// 고른다. 화면에서 직접 바꿀 수도 있다(아래 bgmMood 상태).
+const BGM_MOOD_BY_STYLE: Record<JobStyle, BgmMood> = {
   comic: "playful",
   jeju_travel: "epic",
   emotional: "dreamy",
   product_ad: "epic",
+};
+
+const BGM_LABEL: Record<BgmMood, string> = {
+  mystery: "미스터리 (음산·떡밥)",
+  epic: "웅장 (반전·스케일)",
+  playful: "장난 (코믹)",
+  dreamy: "몽환 (감성·판타지)",
 };
 
 type JobStatus =
@@ -137,6 +145,9 @@ export default function VideoShortsPage() {
   const [style, setStyle] = useState<JobStyle>("comic");
   const [narrationEnabled, setNarrationEnabled] = useState(true);
   const [subtitleEnabled, setSubtitleEnabled] = useState(true);
+  // 스타일을 바꾸면 그 스타일의 기본 무드로 다시 맞춘다. 사용자가 직접 고른
+  // 뒤에는 (아래 <select>에서) 스타일을 또 바꾸기 전까지 그 선택을 존중한다.
+  const [bgmMood, setBgmMood] = useState<BgmMood>(BGM_MOOD_BY_STYLE.comic);
 
   const [submitting, setSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -362,7 +373,7 @@ export default function VideoShortsPage() {
     if (!job || !job.narrationEnabled || !allScenesReady) return "";
     const project = {
       thumbnailCopy: "",
-      bgmMood: BGM_MOOD_BY_STYLE[style] ?? "playful",
+      bgmMood,
       scenes: scenes.map((scene) => ({
         index: scene.sceneIndex,
         narration: scene.narration ?? "",
@@ -375,7 +386,7 @@ export default function VideoShortsPage() {
     const json = JSON.stringify(project, null, 2);
     return `data:application/json;charset=utf-8,${encodeURIComponent(json)}`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job?.id, job?.narrationEnabled, allScenesReady, scenes]);
+  }, [job?.id, job?.narrationEnabled, allScenesReady, scenes, bgmMood]);
 
   if (userLoading) {
     return (
@@ -439,10 +450,24 @@ export default function VideoShortsPage() {
           <label className="flex items-center gap-2"><input type="checkbox" checked={useAllImages} onChange={(e) => setUseAllImages(e.target.checked)} />모든 이미지 사용 (임의로 버리지 않음)</label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={narrationEnabled} onChange={(e) => setNarrationEnabled(e.target.checked)} />내레이션 사용</label>
           <label className="flex items-center gap-2"><input type="checkbox" checked={subtitleEnabled} onChange={(e) => setSubtitleEnabled(e.target.checked)} />자막 사용</label>
-          <label className="flex items-center gap-2 sm:col-span-2">
+          <label className="flex items-center gap-2">
             스타일
-            <select value={style} onChange={(e) => setStyle(e.target.value as JobStyle)} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
+            <select
+              value={style}
+              onChange={(e) => {
+                const next = e.target.value as JobStyle;
+                setStyle(next);
+                setBgmMood(BGM_MOOD_BY_STYLE[next]);
+              }}
+              className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700"
+            >
               {STYLE_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+            </select>
+          </label>
+          <label className="flex items-center gap-2">
+            배경음악
+            <select value={bgmMood} onChange={(e) => setBgmMood(e.target.value as BgmMood)} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
+              {BGM_MOODS.map((mood) => <option key={mood} value={mood}>{BGM_LABEL[mood]}</option>)}
             </select>
           </label>
         </div>
