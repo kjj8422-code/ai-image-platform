@@ -12,6 +12,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
     "@napi-rs/canvas": "^1.0.9",
+    "@runwayml/sdk": "^4.20.0",
     "@supabase/supabase-js": "^2.116.0",
     "next": "16.3.4",
     "react": "19.2.8",

@@ -18,7 +18,8 @@ export type SubmitResult = {
 };
 
 export type PollResult =
-  | { status: "generating" }
+  // progress는 공급자가 실제로 알려주는 값만 넣는다(모르면 undefined) — 가짜 퍼센트 금지.
+  | { status: "generating"; progress?: number }
   | { status: "ready"; videoUrl: string; actualCostCents: number }
   | { status: "failed"; error: string; charged: boolean };
 
