@@ -65,6 +65,13 @@ if not FONT_PATH.exists():  # 아직 안 받은 저장소에서도 돌아가게 
     FONT_PATH = _FONT_DIR / "NotoSansKR-Variable.ttf"
 SFX_DIR = SKILL_DIR / "assets" / "sfx"
 BGM_DIR = SKILL_DIR / "assets" / "bgm"
+# 음원넣기.bat(import_audio.py)으로 사장님이 직접 넣은 소리는 여기 따로 둔다.
+# 기본 음원 폴더에 덮어쓰면 저장소를 업데이트할 때 충돌하거나 원본이 사라진다.
+# 같은 이름이 양쪽에 있으면 직접 넣은 쪽이 이긴다.
+USER_SFX_DIR = SKILL_DIR / "assets" / "user" / "sfx"
+USER_BGM_DIR = SKILL_DIR / "assets" / "user" / "bgm"
+# 효과음·배경음악 이름 목록은 웹과 같이 쓰는 파일 하나에서 읽는다.
+AUDIO_CATALOG_PATH = PROJECT_ROOT / "src" / "lib" / "audioCatalog.json"
 
 DEFAULT_BASE_URL = "https://ai-image-platform-lilac.vercel.app"
 DEFAULT_VOICE = "ko-KR-SunHiNeural"
@@ -149,7 +156,7 @@ NARRATION_TWIST_GAIN = 10 ** (2.5 / 20)
 NARRATION_CLOSE_GAIN = 10 ** (-1.5 / 20)
 # 반전 장면은 대본이 고른 효과음으로 알아낸다 — 스토리보드가 이미 그 자리에 이
 # 큐들을 넣게 되어 있어서, 장면 번호로 넘겨짚는 것보다 정확하다.
-TWIST_CUES = {"reveal", "laugh", "boom"}
+TWIST_CUES = {"reveal", "laugh", "boom", "impact", "triumph", "fanfare", "boing"}
 THUMBNAIL_COPY_SECONDS = 1.6
 
 
@@ -657,7 +664,7 @@ def build_scene_clip(
         )
 
     if thumbnail_copy:
-        style = TITLE_STYLES.get(mood, DEFAULT_TITLE_STYLE)
+        style = TITLE_STYLES.get(mood_family(mood), DEFAULT_TITLE_STYLE)
         shown = min(THUMBNAIL_COPY_SECONDS, duration)
 
         # 그림자를 한 겹 아래 깔고 그 위에 본 글씨를 얹는다. 배경이 밝은 하늘이든
@@ -692,6 +699,46 @@ def build_scene_clip(
     return CompositeVideoClip(layers, size=(VIDEO_WIDTH, VIDEO_HEIGHT)).with_duration(
         duration
     )
+
+
+def load_bgm_families() -> dict:
+    """분위기 이름 -> 파일이 꼭 있는 기본 분위기(mystery/epic/playful/dreamy).
+
+    "공포"처럼 사장님이 직접 채우는 칸은 비어 있을 수 있다. 그때 음악이 통째로
+    빠지는 대신 가장 비슷한 기본 곡을 쓰고, 제목 색·목소리 톤도 그 계열을 따른다.
+    """
+    try:
+        catalog = json.loads(AUDIO_CATALOG_PATH.read_text(encoding="utf-8"))
+        return {entry["mood"]: entry["family"] for entry in catalog["bgm"]}
+    except (OSError, ValueError, KeyError):
+        return {}
+
+
+BGM_FAMILIES = load_bgm_families()
+
+
+def mood_family(mood: str) -> str:
+    """제목 색·목소리 톤을 정할 때 쓰는 기본 분위기."""
+    return BGM_FAMILIES.get(mood, mood)
+
+
+def find_sfx(cue: str):
+    """효과음 파일을 찾는다. 직접 넣은 것 -> 기본 제공 순. 없으면 None."""
+    for folder in (USER_SFX_DIR, SFX_DIR):
+        path = folder / f"{cue}.mp3"
+        if path.exists():
+            return path
+    return None
+
+
+def find_bgm(mood: str):
+    """배경음악 파일을 찾는다. 그 분위기 파일이 없으면 비슷한 기본 곡으로 물러선다."""
+    for name in dict.fromkeys((mood, mood_family(mood))):
+        for folder in (USER_BGM_DIR, BGM_DIR):
+            path = folder / f"{name}.mp3"
+            if path.exists():
+                return path
+    return None
 
 
 def sfx_length(clip_duration: float, scene_duration: float) -> float:
@@ -762,8 +809,8 @@ def build_audio(
     for scene in scenes:
         cue = scene.get("sfx", "none")
         if cue and cue != "none":
-            sfx_path = SFX_DIR / f"{cue}.mp3"
-            if sfx_path.exists():
+            sfx_path = find_sfx(cue)
+            if sfx_path:
                 clip = AudioFileClip(str(sfx_path))
                 clip = clip.subclipped(
                     0, sfx_length(clip.duration, scene["duration"])
@@ -773,16 +820,18 @@ def build_audio(
                     clip.with_volume_scaled(gain).with_start(scene["start"])
                 )
             else:
-                print(f"    (효과음 없음: {sfx_path.name} — 건너뜀)")
+                print(f"    (효과음 없음: {cue}.mp3 — 건너뜀. 음원넣기.bat으로 채울 수 있어요)")
 
-    bgm_path = BGM_DIR / f"{bgm_mood}.mp3"
-    if bgm_path.exists():
+    bgm_path = find_bgm(bgm_mood)
+    if bgm_path and bgm_path.stem != bgm_mood:
+        print(f"    ({bgm_mood} 음악이 아직 없어서 비슷한 {bgm_path.stem} 곡을 씁니다)")
+    if bgm_path:
         bgm = AudioFileClip(str(bgm_path)).with_effects(
             [afx.AudioLoop(duration=total_duration)]
         )
         tracks.append(bgm.with_volume_scaled(BGM_GAIN).with_start(0))
     else:
-        print(f"    (BGM 없음: {bgm_path.name} — 건너뜀)")
+        print(f"    (BGM 없음: {bgm_mood}.mp3 — 건너뜀)")
 
     return CompositeAudioClip(tracks).with_duration(total_duration)
 
@@ -952,7 +1001,7 @@ def main() -> None:
         per_scene_words = json.loads(words_path.read_text(encoding="utf-8"))
     else:
         mood = storyboard.get("bgmMood", DEFAULT_BGM_MOOD)
-        style = dict(VOICE_STYLES.get(mood, DEFAULT_VOICE_STYLE))
+        style = dict(VOICE_STYLES.get(mood_family(mood), DEFAULT_VOICE_STYLE))
         if args.voice:
             style["voice"] = args.voice
         print(

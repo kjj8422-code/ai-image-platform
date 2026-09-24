@@ -45,3 +45,6 @@ next-env.d.ts
 # python
 __pycache__/
 *.pyc
+
+# 음원넣기.bat으로 각자 PC에 넣은 소리 (저장소 업데이트와 충돌하지 않게 따로 둔다)
+/.claude/skills/viral-shorts/assets/user/
