@@ -66,6 +66,8 @@ export const buildDescription = (body: string, hashtags: string[], link: string)
     COUPANG_DISCLOSURE,
   ].join("\n");
 
-export const buildPinnedComment = (line: string, link: string): string =>
-  [line.trim(), `👉 ${link.trim() || LINK_PLACEHOLDER}`, "", COUPANG_DISCLOSURE].join("\n");
+// 쇼츠 댓글 링크는 눌리지 않고(2023년 8월부터), 링크는 나중에 유튜브 쇼핑 태그로
+// 붙인다. 그래서 고정 댓글에는 링크를 넣지 않고 한마디와 광고 표시만 둔다.
+export const buildPinnedComment = (line: string): string =>
+  [line.trim(), "", COUPANG_DISCLOSURE].join("\n");
 
