@@ -1,4 +1,5 @@
 import { RunwayVideoProvider } from "./runwayVideoProvider";
+import { MOCK_PROVIDER_MODEL } from "./videoBudget";
 
 // 이미지 1장을 짧은 동영상 클립으로 만드는 외부 API를 추상화한다.
 // 공급자(Runway/Kling/Replicate 등)를 나중에 골라도 이 인터페이스만 구현하면
@@ -58,7 +59,7 @@ export class MockVideoProvider implements VideoProvider {
     const providerJobId = `mock_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     return {
       providerJobId,
-      providerModel: "mock-echo-v0",
+      providerModel: MOCK_PROVIDER_MODEL,
       estimatedCostCents: this.estimateCostCents(request.durationSeconds),
     };
   }

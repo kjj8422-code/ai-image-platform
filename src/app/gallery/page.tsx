@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { readJson } from "@/lib/readJson";
 import { downloadImage } from "@/lib/downloadImage";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import type { GalleryImage } from "@/lib/gallery";
@@ -24,7 +25,7 @@ const fetchGalleryImages = async (): Promise<GalleryImage[]> => {
   const response = await fetch("/api/gallery/list", {
     headers: { Authorization: `Bearer ${session.access_token}` },
   });
-  const result = await response.json();
+  const result = await readJson(response);
 
   if (!response.ok) {
     throw new Error(result?.error ?? "갤러리를 불러오지 못했습니다.");
@@ -61,6 +62,43 @@ export default function GalleryPage() {
       console.error("이미지 저장 오류:", err);
       setDownloadState("error");
       setRemixError(toErrorMessage(err, "이미지 저장에 실패했습니다."));
+    }
+  };
+
+  const [deletingId, setDeletingId] = useState<string>("");
+
+  // 갤러리에서 1장을 지운다. 되돌릴 수 없어서 한 번 더 묻는다.
+  const handleDelete = async (image: GalleryImage) => {
+    if (!window.confirm("이 이미지를 갤러리에서 지울까요? 되돌릴 수 없어요.")) {
+      return;
+    }
+    setDeletingId(image.id);
+    setRemixError("");
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error("로그인이 필요합니다.");
+      }
+      const response = await fetch("/api/gallery/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ id: image.id }),
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error ?? "삭제에 실패했습니다.");
+      }
+      setImages((prev) => prev.filter((item) => item.id !== image.id));
+      setSelectedIds((prev) => prev.filter((item) => item !== image.id));
+    } catch (err) {
+      setRemixError(toErrorMessage(err, "삭제에 실패했습니다."));
+    } finally {
+      setDeletingId("");
     }
   };
 
@@ -147,7 +185,7 @@ export default function GalleryPage() {
         body: JSON.stringify({ prompt: remixPrompt, imageIds: selectedIds }),
       });
 
-      const result = await response.json();
+      const result = await readJson(response);
 
       if (!response.ok) {
         throw new Error(result?.error ?? "합성에 실패했습니다.");
@@ -189,7 +227,7 @@ export default function GalleryPage() {
       });
 
       if (!response.ok) {
-        const result = await response.json();
+        const result = await readJson(response);
         throw new Error(result?.error ?? "저장에 실패했습니다.");
       }
 
@@ -203,7 +241,7 @@ export default function GalleryPage() {
 
   if (userLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
+      <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
         <p className="text-sm text-zinc-500">로그인 상태 확인 중...</p>
       </div>
     );
@@ -211,7 +249,7 @@ export default function GalleryPage() {
 
   if (!user) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           갤러리는 로그인 후 이용하실 수 있습니다.
         </p>
@@ -226,7 +264,7 @@ export default function GalleryPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
+    <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
       <div className="flex w-full max-w-2xl items-center justify-between">
         <h1 className="text-2xl font-semibold text-black dark:text-white">
           내 갤러리
@@ -281,6 +319,15 @@ export default function GalleryPage() {
                     alt={image.prompt ?? "저장된 이미지"}
                     className="aspect-square w-full object-cover"
                   />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(image)}
+                  disabled={deletingId === image.id}
+                  aria-label="이미지 삭제"
+                  className="absolute left-1 top-1 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-red-600 disabled:opacity-50"
+                >
+                  {deletingId === image.id ? "지우는 중" : "삭제"}
                 </button>
                 {isSelected && (
                   <span className="absolute right-1 top-1 rounded-full bg-black px-2 py-0.5 text-[10px] font-medium text-white dark:bg-white dark:text-black">

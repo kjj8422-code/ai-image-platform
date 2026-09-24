@@ -4,9 +4,11 @@ import { Suspense, useEffect, useMemo, useRef, useState, type DragEvent } from "
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { readJson } from "@/lib/readJson";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import { BGM_GROUPS, type BgmMood } from "@/lib/audioCatalog";
 import { AudioHelp } from "@/components/AudioHelp";
+import { MOCK_PROVIDER_MODEL } from "@/lib/videoBudget";
 
 // 사진 쇼츠(../page.tsx)와 같은 업로드 제약 재사용.
 const MIN_IMAGES = 5;
@@ -69,11 +71,17 @@ type Scene = {
   status: SceneStatus;
   videoUrl: string | null;
   providerModel: string | null;
+  // 영상은 나왔는데 우리 저장소로 옮기다 실패하면 여기 공급자 임시 주소가 남는다.
+  providerRawUrl?: string | null;
   error: string | null;
 };
 
+// 이미 돈을 낸 영상을 서버가 다시 저장해 보는 중인 장면. 이것도 "진행 중"으로 본다.
+const isRetryingSave = (scene: Scene): boolean =>
+  scene.status === "failed" && Boolean(scene.providerRawUrl) && !scene.videoUrl;
+
 const isMockScene = (scene: Scene): boolean =>
-  scene.providerModel === "mock-echo-v0" || scene.providerModel == null;
+  scene.providerModel === MOCK_PROVIDER_MODEL || scene.providerModel == null;
 
 const money = (cents: number | null): string =>
   cents == null ? "-" : `$${(cents / 100).toFixed(2)}`;
@@ -136,7 +144,7 @@ export default function VideoShortsPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
+        <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
           <p className="text-sm text-zinc-500">불러오는 중...</p>
         </div>
       }
@@ -220,7 +228,7 @@ function VideoShortsPageInner() {
     (async () => {
       try {
         const res = await authedFetch(`/api/shorts/video/jobs/${jobIdFromUrl}`);
-        const data = await res.json();
+        const data = await readJson(res);
         if (!res.ok) throw new Error(data.error ?? "작업을 불러오지 못했습니다.");
         if (!cancelled) {
           setJob(data.job);
@@ -246,14 +254,15 @@ function VideoShortsPageInner() {
   useEffect(() => {
     if (!job) return;
     const stillMoving =
-      job.status === "planning" || scenes.some((s) => s.status === "generating");
+      job.status === "planning" ||
+      scenes.some((s) => s.status === "generating" || isRetryingSave(s));
     if (!stillMoving) return;
 
     const timer = setInterval(async () => {
       try {
         const res = await authedFetch(`/api/shorts/video/jobs/${job.id}`);
         if (!res.ok) return;
-        const data = await res.json();
+        const data = await readJson(res);
         setJob(data.job);
         setScenes(data.scenes);
       } catch {
@@ -287,7 +296,7 @@ function VideoShortsPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ extensions: blobs.map((b) => b.extension) }),
       });
-      const urlData = await urlRes.json();
+      const urlData = await readJson(urlRes);
       if (!urlRes.ok || !urlData.uploads) {
         throw new Error(urlData.error ?? "업로드 준비에 실패했습니다.");
       }
@@ -320,7 +329,7 @@ function VideoShortsPageInner() {
           subtitleEnabled,
         }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(data.error ?? "작업 생성에 실패했습니다.");
       setJob(data.job);
       setScenes(data.scenes);
@@ -361,7 +370,7 @@ function VideoShortsPageInner() {
           body: JSON.stringify({ regenerate, provider }),
         },
       );
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(data.error ?? "장면 생성 요청에 실패했습니다.");
       setScenes((prev) => prev.map((s) => (s.sceneIndex === scene.sceneIndex ? data.scene : s)));
       return true;
@@ -432,7 +441,7 @@ function VideoShortsPageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ order }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(data.error ?? "순서를 바꾸지 못했습니다.");
       setScenes(data.scenes);
       // 장면 번호가 다시 매겨지므로, 번호로 연결해둔 임시 상태는 비운다
@@ -465,7 +474,7 @@ function VideoShortsPageInner() {
           body: JSON.stringify({ narration, subtitle: narration }),
         },
       );
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok) throw new Error(data.error ?? "수정에 실패했습니다.");
       setScenes((prev) => prev.map((s) => (s.sceneIndex === scene.sceneIndex ? data.scene : s)));
       setEditedText((prev) => {
@@ -523,14 +532,14 @@ function VideoShortsPageInner() {
 
   if (userLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
+      <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
         <p className="text-sm text-zinc-500">로그인 상태 확인 중...</p>
       </div>
     );
   }
   if (!user) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">AI 영상 쇼츠는 로그인 후 이용할 수 있습니다.</p>
         <Link href="/login" className="rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-white dark:text-black">로그인</Link>
       </div>
@@ -538,7 +547,7 @@ function VideoShortsPageInner() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
+    <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
       <div className="flex w-full max-w-2xl items-center justify-between">
         <h1 className="text-2xl font-semibold text-black dark:text-white">AI 영상 쇼츠 (베타)</h1>
         <div className="flex items-center gap-3">

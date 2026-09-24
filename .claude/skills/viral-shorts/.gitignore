@@ -1,1 +1,4 @@
 voices/
+
+# ensure_deps.py가 PC마다 남기는 설치 기록
+.installed-requirements

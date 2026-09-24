@@ -4,6 +4,25 @@ import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
+// Supabase 로그인 오류는 영어로 온다("Invalid login credentials"). 자주 나오는 것만
+// 우리말로 바꾸고, 모르는 오류는 원문을 그대로 보여 준다(원인 파악용).
+const toKoreanAuthError = (message: string): string => {
+  const lower = message.toLowerCase();
+  if (lower.includes("invalid login credentials")) {
+    return "이메일 또는 비밀번호가 맞지 않아요.";
+  }
+  if (lower.includes("email not confirmed")) {
+    return "이메일 인증이 아직 안 됐어요. 초대 메일의 링크를 먼저 눌러 주세요.";
+  }
+  if (lower.includes("rate limit") || lower.includes("too many")) {
+    return "로그인 시도가 너무 많아요. 잠시 후 다시 시도해 주세요.";
+  }
+  if (lower.includes("failed to fetch") || lower.includes("network")) {
+    return "인터넷 연결을 확인해 주세요.";
+  }
+  return message;
+};
+
 // 개인/초대 전용 도구로 전환 — 공개 회원가입은 제공하지 않는다.
 // 계정은 Supabase 대시보드의 "Invite user" 기능으로만 생성한다.
 export default function LoginPage() {
@@ -29,7 +48,9 @@ export default function LoginPage() {
       router.push("/");
     } catch (err) {
       setErrorMessage(
-        err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.",
+        err instanceof Error
+          ? toKoreanAuthError(err.message)
+          : "알 수 없는 오류가 발생했습니다.",
       );
     } finally {
       setIsSubmitting(false);
@@ -37,7 +58,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 dark:bg-black">
+    <div className="flex flex-1 items-center justify-center bg-zinc-50 px-4 dark:bg-black">
       <div className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
         <h1 className="mb-2 text-center text-2xl font-semibold text-black dark:text-white">
           로그인
