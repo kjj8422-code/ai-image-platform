@@ -19,7 +19,7 @@ clip_shorts.py
 쓸 수 있는 영상: 직접 찍은 영상, 원작자에게 허락받은 영상, 무료 영상 사이트(Pexels,
 Pixabay 등)의 상업 이용 가능 영상, 힉스필드 등으로 만든 영상. 남의 영상을 허락 없이
 올리면 저작권 경고(3번이면 채널 삭제)와 파트너 프로그램 거절로 이어지므로, 만들기 전에
-권리를 확인하고 출처를 기록한다.
+어떤 영상인지 한 번 확인한다(허락 기록 자체는 사용자가 따로 관리한다).
 
 자막 파일(.txt) 형식 — 둘 다 된다:
     3 이게 진짜 된다고?          ← "시작 초 + 문구" (0:03, 00:03.5 도 됨)
@@ -46,10 +46,10 @@ SKILL_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SKILL_DIR))
 
 import build_shorts as bs  # noqa: E402  (글꼴·줄바꿈·배경음악 찾기를 같이 쓴다)
+from video_download import read_sidecar  # noqa: E402  (영상받기로 받은 영상의 원작자 정보)
 
 W, H = bs.VIDEO_WIDTH, bs.VIDEO_HEIGHT
 OUT_DIR = bs.PROJECT_ROOT / "out" / "clips"
-SOURCE_LOG = SKILL_DIR / "assets" / "user" / "영상출처기록.txt"
 
 TITLE_Y = 120
 TITLE_SIZE = 92
@@ -335,13 +335,6 @@ def ask(prompt: str) -> str:
         return ""
 
 
-def log_source(source: Path, rights: str, credit: str, note: str) -> None:
-    SOURCE_LOG.parent.mkdir(parents=True, exist_ok=True)
-    stamp = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
-    with SOURCE_LOG.open("a", encoding="utf-8") as f:
-        f.write(f"{stamp} | {source.name} | {rights} | 원작자: {credit or '-'} | {note or '-'}\n")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="영상 파일을 인기 쇼츠 모양으로 만든다")
     parser.add_argument("video", nargs="?", help="영상 파일 (bat에 끌어다 놓으면 자동으로 들어감)")
@@ -361,7 +354,7 @@ def main() -> int:
         print("\n[!] 그 영상 파일을 찾지 못했어요.")
         return 1
 
-    rights, note = "사용자 확인(--i-have-rights)", ""
+    rights = "사용자 확인(--i-have-rights)"
     if interactive:
         print("\n이 영상은 어떤 영상인가요? 남의 영상을 허락 없이 올리면 저작권 경고와")
         print("채널 삭제, 파트너 프로그램 거절로 이어져요.")
@@ -373,12 +366,18 @@ def main() -> int:
             print("\n만들지 않았어요. 허락받은 영상이나 직접 만든 영상으로 다시 해 주세요.")
             return 0
         rights = RIGHTS_OPTIONS[choice]
-        if choice == "2":
-            note = ask("허락받은 곳을 적어 두세요 (예: 인스타 DM 2026-09-24) > ")
 
-    credit = args.credit if args.credit is not None else (
-        ask("원작자 표시 (예: @아이디, 내 영상이면 엔터) > ") if interactive else ""
-    )
+    # 영상받기.bat으로 받은 영상이면 옆에 원작자 정보(.json)가 있다 — 기본값으로 쓴다.
+    known_credit = read_sidecar(source).get("credit", "")
+    if args.credit is not None:
+        credit = args.credit
+    elif interactive and known_credit:
+        typed = ask(f"원작자 표시 (엔터 = {known_credit}, 빼려면 - 입력) > ")
+        credit = "" if typed == "-" else (typed or known_credit)
+    elif interactive:
+        credit = ask("원작자 표시 (예: @아이디, 내 영상이면 엔터) > ")
+    else:
+        credit = known_credit
     if interactive and rights == RIGHTS_OPTIONS["2"] and not credit:
         credit = ask("허락받은 영상은 원작자 표시가 필요해요. 아이디를 적어 주세요 > ")
     title = args.title if args.title is not None else (ask("위쪽 제목 (예: 이게 된다고?) > ") if interactive else "")
@@ -419,7 +418,6 @@ def main() -> int:
     except (RuntimeError, ValueError) as error:
         print(f"\n[!] 만들지 못했어요: {error}")
         return 1
-    log_source(source, rights, credit, note)
     print(f"\n✔ 완성! -> {out}")
     print("  업로드할 때 AI 영상이면 '변경되거나 합성된 콘텐츠'를, 허락받은 영상이면 설명란에 원작자를 적어 주세요.")
     return 0
