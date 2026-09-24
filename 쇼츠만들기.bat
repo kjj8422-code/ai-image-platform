@@ -9,6 +9,13 @@ echo     쇼츠 만들기
 echo   =====================================
 echo.
 
+call ".claude\skills\viral-shorts\prepare.cmd"
+if errorlevel 1 (
+    echo.
+    pause
+    exit /b 1
+)
+
 rem 다운로드 폴더에서 가장 최근에 받은 프로젝트 파일을 고른다.
 rem 브라우저는 같은 파일을 또 받으면 "shorts-project (1).json" 처럼 이름을 바꿔
 rem 저장한다. 파일명을 고정해두면 그런 줄 모르고 계속 옛날 대본으로 영상을 뽑게
