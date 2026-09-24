@@ -455,14 +455,12 @@ def synthesize_all_narrations(
 # 이미지 전처리
 # --------------------------------------------------------------------------
 
-def fit_to_frame(src: Path, dest: Path) -> Path:
-    """생성 이미지를 1080x1920에 꽉 차게 잘라 맞춘다(비율 왜곡 없이)."""
+def _cover(image, width: int, height: int):
+    """비율을 지키며 width x height를 꽉 채우도록 가운데를 잘라 맞춘다."""
     from PIL import Image
 
-    image = Image.open(src).convert("RGB")
-    target_ratio = VIDEO_WIDTH / VIDEO_HEIGHT
+    target_ratio = width / height
     src_ratio = image.width / image.height
-
     if src_ratio > target_ratio:
         new_width = int(image.height * target_ratio)
         left = (image.width - new_width) // 2
@@ -471,9 +469,129 @@ def fit_to_frame(src: Path, dest: Path) -> Path:
         new_height = int(image.width / target_ratio)
         top = (image.height - new_height) // 2
         image = image.crop((0, top, image.width, top + new_height))
+    return image.resize((width, height), Image.LANCZOS)
 
-    image.resize((VIDEO_WIDTH, VIDEO_HEIGHT), Image.LANCZOS).save(dest)
+
+# 상품 사진을 통째로 보여줄 때 상품이 차지할 최대 영역. 위쪽은 제목·후기 카드 자리라
+# 가운데보다 조금 아래에 둔다(세 줄짜리 후기 카드 아래 끝이 화면의 약 31%). 좌우는
+# 버튼 자리를 조금 남긴다.
+CONTAIN_MAX_WIDTH = int(VIDEO_WIDTH * 0.92)
+CONTAIN_MAX_HEIGHT = int(VIDEO_HEIGHT * 0.42)
+CONTAIN_CENTER_Y = int(VIDEO_HEIGHT * 0.55)
+
+
+def fit_to_frame(src: Path, dest: Path, mode: str = "cover") -> Path:
+    """이미지를 1080x1920 한 장으로 만든다(비율 왜곡 없이).
+
+    cover  : 화면을 꽉 채우도록 가운데를 잘라낸다. 풍경·인물 사진용.
+    contain: 상품 사진용. 쇼핑몰 상품 사진은 대개 정사각형이라 cover로 자르면 상품
+             양옆이 잘려 나간다. 상품은 통째로 가운데에 두고, 남는 곳은 같은 사진을
+             크게 흐리게 깔아 채운다(검은 띠보다 훨씬 덜 허전해 보인다).
+    """
+    from PIL import Image, ImageEnhance, ImageFilter
+
+    image = Image.open(src).convert("RGB")
+    if mode != "contain":
+        _cover(image, VIDEO_WIDTH, VIDEO_HEIGHT).save(dest)
+        return dest
+
+    background = _cover(image, VIDEO_WIDTH, VIDEO_HEIGHT).filter(
+        ImageFilter.GaussianBlur(40)
+    )
+    background = ImageEnhance.Brightness(background).enhance(0.6)
+
+    scale = min(CONTAIN_MAX_WIDTH / image.width, CONTAIN_MAX_HEIGHT / image.height)
+    product = image.resize(
+        (max(1, int(image.width * scale)), max(1, int(image.height * scale))),
+        Image.LANCZOS,
+    )
+    left = (VIDEO_WIDTH - product.width) // 2
+    top = CONTAIN_CENTER_Y - product.height // 2
+    background.paste(product, (left, top))
+    background.save(dest)
     return dest
+
+
+# --------------------------------------------------------------------------
+# 구매자 후기 카드
+# --------------------------------------------------------------------------
+
+# 쇼핑 쇼츠에서 가장 믿음을 주는 건 진행자의 말이 아니라 실제 구매자의 한 줄이다.
+# 후기를 나레이션으로만 읽으면 "지어낸 말"처럼 들리므로, 화면에 쇼핑몰 후기처럼 생긴
+# 카드로 같이 띄운다. 위치는 제목(첫 1.6초)이 지나간 뒤의 상단 — 상품(가운데)과
+# 자막(아래)을 가리지 않는다.
+REVIEW_CARD_WIDTH = int(VIDEO_WIDTH * 0.8)
+REVIEW_CARD_Y = int(VIDEO_HEIGHT * 0.14)
+REVIEW_CARD_MAX_LINES = 3
+REVIEW_CARD_PADDING = 36
+REVIEW_TEXT_SIZE = 50
+REVIEW_LABEL_SIZE = 34
+
+
+def _wrap_korean(draw, text: str, font, max_width: int) -> list[str]:
+    """글자 단위로 폭에 맞춰 줄을 나눈다. 한글 후기는 띄어쓰기가 불규칙해서
+    단어 단위로 자르면 한 줄이 넘치거나 너무 짧아진다."""
+    lines: list[str] = []
+    current = ""
+    for char in text:
+        if char == "\n":
+            lines.append(current)
+            current = ""
+            continue
+        trial = current + char
+        if draw.textlength(trial, font=font) <= max_width or not current:
+            current = trial
+        else:
+            lines.append(current)
+            current = char.lstrip()
+    if current:
+        lines.append(current)
+    return lines
+
+
+def render_review_card(quote: str, dest: Path, rating: int = 5) -> Path:
+    """"★★★★★ 구매자 후기" + 인용문이 들어간 반투명 카드를 투명 PNG로 그린다."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    text_font = ImageFont.truetype(str(FONT_PATH), REVIEW_TEXT_SIZE)
+    label_font = ImageFont.truetype(str(FONT_PATH), REVIEW_LABEL_SIZE)
+    probe = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+
+    inner_width = REVIEW_CARD_WIDTH - REVIEW_CARD_PADDING * 2
+    lines = _wrap_korean(probe, f"“{quote.strip()}”", text_font, inner_width)
+    if len(lines) > REVIEW_CARD_MAX_LINES:
+        # 카드가 화면을 덮지 않게 세 줄에서 자르고 말줄임표를 붙인다.
+        lines = lines[:REVIEW_CARD_MAX_LINES]
+        last = lines[-1]
+        while last and probe.textlength(last + "…”", font=text_font) > inner_width:
+            last = last[:-1]
+        lines[-1] = last + "…”"
+
+    rating = min(max(int(rating), 1), 5)
+    label = "★" * rating + "☆" * (5 - rating) + "  구매자 후기"
+    line_height = int(REVIEW_TEXT_SIZE * 1.35)
+    label_height = int(REVIEW_LABEL_SIZE * 1.6)
+    height = REVIEW_CARD_PADDING * 2 + label_height + line_height * len(lines)
+
+    card = Image.new("RGBA", (REVIEW_CARD_WIDTH, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(card)
+    draw.rounded_rectangle(
+        (0, 0, REVIEW_CARD_WIDTH - 1, height - 1), radius=32, fill=(255, 255, 255, 235)
+    )
+    x = REVIEW_CARD_PADDING
+    y = REVIEW_CARD_PADDING
+    draw.text((x, y), label, font=label_font, fill=(245, 166, 35, 255))
+    y += label_height
+    for line in lines:
+        draw.text((x, y), line, font=text_font, fill=(24, 24, 27, 255))
+        y += line_height
+    card.save(dest)
+    return dest
+
+
+def image_fit(storyboard: dict, scene: dict) -> str:
+    """장면 사진을 어떻게 화면에 맞출지. 장면 값이 있으면 그걸, 없으면 영상 전체 값을 쓴다."""
+    return scene.get("imageFit") or storyboard.get("imageFit") or "cover"
 
 
 def download_video(config: dict, token: str, url: str, dest: Path) -> Path:
@@ -646,6 +764,16 @@ def build_scene_clip(
         )
 
     layers = [background]
+    if scene.get("review_card_path"):
+        # 첫 장면 제목과 겹치지 않도록 제목이 떠 있는 동안은 기다렸다가 띄운다.
+        card_start = min(THUMBNAIL_COPY_SECONDS if thumbnail_copy else 0.15, duration)
+        if duration - card_start > 0.1:
+            layers.append(
+                ImageClip(str(scene["review_card_path"]))
+                .with_start(card_start)
+                .with_duration(duration - card_start)
+                .with_position(("center", REVIEW_CARD_Y))
+            )
     for word in scene.get("words", []):
         text = word["text"].strip()
         if not text:
@@ -1045,7 +1173,7 @@ def main() -> None:
             print(f"4-{index}) 장면 {index} 업로드 이미지 내려받는 중...")
             config, token = auth()
             download_image(config, token, raw_scene["imageUrl"], raw_path)
-            fit_to_frame(raw_path, image_path)
+            fit_to_frame(raw_path, image_path, image_fit(storyboard, raw_scene))
         else:
             print(f"4-{index}) 장면 {index} 이미지 생성 중...")
             config, token = auth()
@@ -1057,7 +1185,14 @@ def main() -> None:
             )
             fit_to_frame(raw_path, image_path)
 
-        prepared.append({**raw_scene, "image_path": image_path})
+        prepared_scene = {**raw_scene, "image_path": image_path}
+        if raw_scene.get("reviewQuote"):
+            card_path = work_dir / "images" / f"review_{index}.png"
+            render_review_card(
+                raw_scene["reviewQuote"], card_path, raw_scene.get("reviewRating", 5)
+            )
+            prepared_scene["review_card_path"] = card_path
+        prepared.append(prepared_scene)
 
     from moviepy import AudioFileClip
 

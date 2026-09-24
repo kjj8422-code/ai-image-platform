@@ -10,6 +10,12 @@ export default function Home() {
       <AuthStatus />
       <div className="flex flex-wrap items-center justify-center gap-3">
         <Link
+          href="/shorts/product"
+          className="rounded-full bg-orange-500 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-orange-600"
+        >
+          🛒 쿠팡 꿀템 쇼츠 만들기
+        </Link>
+        <Link
           href="/generate"
           className="rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
         >
