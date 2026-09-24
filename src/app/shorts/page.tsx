@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import { BGM_GROUPS, SFX_GROUPS } from "@/lib/audioCatalog";
 import { AudioHelp } from "@/components/AudioHelp";
+import { AudioPreviewButton } from "@/components/AudioPreviewButton";
 
 type Step = "idle" | "uploading" | "analyzing" | "composing" | "done" | "error";
 
@@ -582,6 +583,7 @@ export default function ShortsPage() {
                     </optgroup>
                   ))}
                 </select>
+                <AudioPreviewButton kind="bgm" name={storyboard.bgmMood} />
               </div>
               <ol className="flex flex-col gap-2">
                 {storyboard.scenes.map((scene, sceneIndex) => {
@@ -669,6 +671,7 @@ export default function ShortsPage() {
                               </optgroup>
                             ))}
                           </select>
+                          <AudioPreviewButton kind="sfx" name={scene.sfx} />
                         </div>
                       </div>
                     </li>

@@ -8,6 +8,7 @@ import {
   BGM_MOODS,
   SFX_ENTRIES,
   SFX_LIBRARY,
+  resolvePreviewFile,
 } from "./audioCatalog.ts";
 
 // 웹이 고르는 이름과 PC가 찾는 mp3 이름이 어긋나면 에러 없이 "소리가 빠진 영상"만
@@ -53,4 +54,32 @@ test("사람만 고르는 칸(내 효과음 등)은 AI 목록에 없다", () => 
   assert.ok(!(AI_SFX_CUES as readonly string[]).includes("my1"));
   assert.ok(!(AI_BGM_MOODS as readonly string[]).includes("my1"));
   assert.ok(!(AI_BGM_MOODS as readonly string[]).includes("horror"));
+});
+
+test("미리듣기는 목록에 있는 이름만 파일로 바꾼다 (경로 조작 차단)", () => {
+  assert.equal(resolvePreviewFile("sfx", "../../../.env"), null);
+  assert.equal(resolvePreviewFile("bgm", "..%2F.env"), null);
+  assert.equal(resolvePreviewFile("secret", "boom"), null);
+});
+
+test("효과음 미리듣기: 기본 소리는 되고, 빈 칸·없음은 안 된다", () => {
+  assert.deepEqual(resolvePreviewFile("sfx", "coin"), { kind: "sfx", name: "coin", isStandIn: false });
+  assert.equal(resolvePreviewFile("sfx", "my1"), null);
+  assert.equal(resolvePreviewFile("sfx", "none"), null);
+});
+
+test("배경음악 미리듣기: 빈 칸은 대신 나올 기본 곡을 들려준다", () => {
+  assert.deepEqual(resolvePreviewFile("bgm", "horror"), { kind: "bgm", name: "mystery", isStandIn: true });
+  assert.deepEqual(resolvePreviewFile("bgm", "epic"), { kind: "bgm", name: "epic", isStandIn: false });
+});
+
+test("미리듣기로 고른 파일은 전부 실제로 있다", () => {
+  for (const entry of SFX_ENTRIES) {
+    const file = resolvePreviewFile("sfx", entry.cue);
+    if (file) assert.ok(existsSync(new URL(`sfx/${file.name}.mp3`, ASSETS)), file.name);
+  }
+  for (const entry of BGM_ENTRIES) {
+    const file = resolvePreviewFile("bgm", entry.mood);
+    assert.ok(file && existsSync(new URL(`bgm/${file.name}.mp3`, ASSETS)), entry.mood);
+  }
 });

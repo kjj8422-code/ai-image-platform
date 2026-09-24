@@ -10,6 +10,12 @@ const nextConfig: NextConfig = {
   // (안 하면 폰트를 못 찾아 한글이 네모(tofu)로 깨진다 — 실제로 겪은 문제).
   outputFileTracingIncludes: {
     "/api/thumbnail/compose": ["./public/fonts/**"],
+    // 미리듣기 라우트가 읽는 기본 효과음·배경음악. 사장님 PC에만 있는 assets/user는
+    // 저장소에 없으므로 여기 들어가지 않는다.
+    "/api/audio/preview": [
+      "./.claude/skills/viral-shorts/assets/sfx/*.mp3",
+      "./.claude/skills/viral-shorts/assets/bgm/*.mp3",
+    ],
   },
 };
 
