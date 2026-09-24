@@ -222,6 +222,37 @@ def test_review_card_fits_safe_width_and_caps_lines():
             assert bs.REVIEW_CARD_WIDTH <= bs.VIDEO_WIDTH * 0.8
 
 
+
+def test_short_scenes_are_held_and_later_scenes_shift():
+    """1초짜리 장면은 최소 시간까지 늘고, 그 뒤 장면은 그만큼 늦게 시작한다."""
+    scenes = [
+        {"start": 0.0, "duration": 3.0},
+        {"start": 3.0, "duration": 1.0},  # "세 시간째." 같은 짧은 대사
+        {"start": 4.0, "duration": 2.8},
+    ]
+    assert bs.hold_short_scenes(scenes, 2.4) is True
+    assert [s["duration"] for s in scenes] == [3.0, 2.4, 2.8]
+    assert [s["start"] for s in scenes] == [0.0, 3.0, 5.4]
+    # 목소리는 원래 구간 그대로 잘라 쓴다
+    assert scenes[2]["voice_start"] == 4.0 and scenes[2]["voice_duration"] == 2.8
+
+
+def test_long_enough_scenes_are_untouched():
+    """모든 장면이 충분히 길면 타이밍을 하나도 바꾸지 않는다(목소리도 안 자른다)."""
+    scenes = [{"start": 0.0, "duration": 3.0}, {"start": 3.0, "duration": 2.5}]
+    assert bs.hold_short_scenes(scenes, 2.4) is False
+    assert [(s["start"], s["duration"]) for s in scenes] == [(0.0, 3.0), (3.0, 2.5)]
+
+
+def test_more_scenes_means_longer_video():
+    """장면 수가 늘면 영상도 적어도 장면 수 x 최소 시간만큼 길어진다."""
+    for count in (6, 10, 15):
+        scenes = [{"start": i * 1.0, "duration": 1.0} for i in range(count)]
+        bs.hold_short_scenes(scenes)
+        total = scenes[-1]["start"] + scenes[-1]["duration"]
+        assert total >= count * bs.MIN_SCENE_SECONDS - 1e-9
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

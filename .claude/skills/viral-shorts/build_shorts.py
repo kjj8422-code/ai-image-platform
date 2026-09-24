@@ -107,6 +107,13 @@ THUMBNAIL_COPY_MAX_HEIGHT = 430
 # 나레이션을 통째로 한 번에 읽히므로 장면 사이에 무음을 따로 끼우지 않는다.
 # 이 값은 마지막 장면에서 말이 끝나자마자 영상이 뚝 끊기지 않게 두는 꼬리 여유다.
 SCENE_TAIL_PADDING = 0.08
+# 장면 하나가 화면에 떠 있는 최소 시간. 장면 길이는 그 장면 대사 길이로 정해지는데,
+# "세 시간째." 같은 짧은 대사면 사진이 1초 만에 휙 지나가 무슨 사진인지 보기도 전에
+# 넘어간다(장면 수를 늘릴수록 심해진다). 대사가 짧으면 사진을 이만큼은 보여주고,
+# 다음 대사를 그만큼 늦게 시작한다 — 짧은 한마디 뒤의 "한 박자 쉼"이 된다.
+MIN_SCENE_SECONDS = 2.4
+# 목소리를 잘라 사이를 띄울 때 이음매에서 "틱" 소리가 나지 않게 살짝 줄인다.
+NARRATION_SEAM_FADE = 0.03
 # 쇼츠 나레이션은 일상 대화보다 조금 빨라야 넘기지 않는다.
 NARRATION_RATE = "+12%"
 
@@ -900,6 +907,60 @@ def measure_rms(path: Path) -> float:
     return float(np.sqrt((frames**2).mean()))
 
 
+def hold_short_scenes(scenes: list[dict], min_seconds: float = MIN_SCENE_SECONDS) -> bool:
+    """대사가 짧은 장면을 min_seconds까지 늘리고, 뒤 장면들을 그만큼 뒤로 민다.
+
+    각 장면에 원래 목소리 구간(voice_start, voice_duration)을 남겨 둔다 — 합성할 때
+    목소리를 그 구간대로 잘라 새 시작 시각에 붙인다. 늘어난 장면이 하나라도 있으면
+    True를 돌려준다(없으면 목소리를 자르지 않고 예전처럼 한 덩어리로 쓴다).
+    """
+    cursor = 0.0
+    changed = False
+    for scene in scenes:
+        scene["voice_start"] = scene["start"]
+        scene["voice_duration"] = scene["duration"]
+        if scene["duration"] < min_seconds:
+            scene["duration"] = min_seconds
+            changed = True
+        scene["start"] = cursor
+        cursor += scene["duration"]
+    return changed
+
+
+def _narration_gain(index: int, last_index: int, scene: dict) -> float:
+    """대목별 강약: 훅은 들뜨게, 반전은 세게, 마무리는 툭 떨어뜨린다."""
+    if index == 0:
+        return NARRATION_HOOK_GAIN
+    if index == last_index:
+        return NARRATION_CLOSE_GAIN
+    if scene.get("sfx") in TWIST_CUES:
+        return NARRATION_TWIST_GAIN
+    return 1.0
+
+
+def _held_narration_tracks(scenes: list[dict], narration) -> list:
+    """목소리를 장면별 원래 구간대로 잘라, 늘어난 장면 시각에 맞춰 다시 놓는다."""
+    from moviepy import afx
+
+    tracks = []
+    last_index = len(scenes) - 1
+    for i, scene in enumerate(scenes):
+        start = scene["voice_start"]
+        end = min(start + scene["voice_duration"], narration.duration)
+        if end - start <= 0.01:
+            continue
+        piece = narration.subclipped(start, end)
+        # 뒤에 쉼이 생기는 조각만 끝을 살짝 줄인다. 이어 붙는 조각은 원래대로 둬야
+        # 한 문장처럼 이어 읽힌 억양이 그대로 남는다.
+        if scene["duration"] > scene["voice_duration"] + 0.01:
+            piece = piece.with_effects([afx.AudioFadeOut(NARRATION_SEAM_FADE)])
+        gain = _narration_gain(i, last_index, scene)
+        if gain != 1.0:
+            piece = piece.with_volume_scaled(gain)
+        tracks.append(piece.with_start(scene["start"]))
+    return tracks
+
+
 def build_audio(
     scenes: list[dict],
     total_duration: float,
@@ -909,30 +970,34 @@ def build_audio(
     """나레이션 + 장면별 SFX + 루프 BGM(-15dB)을 한 트랙으로 섞는다."""
     from moviepy import AudioFileClip, CompositeAudioClip, afx
 
-    # 나레이션은 통째로 한 트랙이다. 장면마다 잘라 붙이면 이어 읽힌 억양이
-    # 이음매에서 다시 끊기므로 자르지 않는다. 대신 구간별 음량만 얹는다.
     narration = AudioFileClip(str(narration_path))
-    shaping = []
-    last_index = len(scenes) - 1
-    for i, scene in enumerate(scenes):
-        if i == 0:
-            factor = NARRATION_HOOK_GAIN
-        elif i == last_index:
-            factor = NARRATION_CLOSE_GAIN
-        elif scene.get("sfx") in TWIST_CUES:
-            factor = NARRATION_TWIST_GAIN
-        else:
-            continue
-        shaping.append(
-            afx.MultiplyVolume(
-                factor,
-                start_time=scene["start"],
-                end_time=scene["start"] + scene["duration"],
+    held = any(
+        abs(scene.get("voice_start", scene["start"]) - scene["start"]) > 0.001
+        or abs(scene.get("voice_duration", scene["duration"]) - scene["duration"]) > 0.001
+        for scene in scenes
+    )
+    if held:
+        # 짧은 장면을 늘렸으면(hold_short_scenes) 목소리를 장면별로 잘라 다시 놓는다.
+        tracks = _held_narration_tracks(scenes, narration)
+    else:
+        # 나레이션은 통째로 한 트랙이다. 장면마다 잘라 붙이면 이어 읽힌 억양이
+        # 이음매에서 다시 끊기므로 자르지 않는다. 대신 구간별 음량만 얹는다.
+        shaping = []
+        last_index = len(scenes) - 1
+        for i, scene in enumerate(scenes):
+            factor = _narration_gain(i, last_index, scene)
+            if factor == 1.0:
+                continue
+            shaping.append(
+                afx.MultiplyVolume(
+                    factor,
+                    start_time=scene["start"],
+                    end_time=scene["start"] + scene["duration"],
+                )
             )
-        )
-    if shaping:
-        narration = narration.with_effects(shaping)
-    tracks = [narration.with_start(0)]
+        if shaping:
+            narration = narration.with_effects(shaping)
+        tracks = [narration.with_start(0)]
 
     for scene in scenes:
         cue = scene.get("sfx", "none")
@@ -1221,6 +1286,9 @@ def main() -> None:
             }
         )
 
+    if hold_short_scenes(scenes):
+        held = [s["index"] for s in scenes if s["duration"] > s["voice_duration"] + 0.01]
+        print(f"   (대사가 짧은 장면 {held}은 사진을 {MIN_SCENE_SECONDS}초까지 보여줍니다)")
     cursor = scenes[-1]["start"] + scenes[-1]["duration"]
 
     total = math.ceil(cursor)

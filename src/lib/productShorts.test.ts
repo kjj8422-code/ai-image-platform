@@ -67,7 +67,9 @@ test("설명란과 고정 댓글에는 항상 링크 자리와 쿠팡 대가성 
   assert.ok(withLink.includes("#보온병 #쿠팡추천"));
   assert.ok(withLink.endsWith(COUPANG_DISCLOSURE));
 
-  const noLink = buildPinnedComment("이거 품절 전에 보세요", "");
-  assert.ok(noLink.includes("쿠팡 파트너스 링크"));
-  assert.ok(noLink.endsWith(COUPANG_DISCLOSURE));
+  // 고정 댓글에는 링크를 넣지 않는다(쇼츠 댓글 링크는 눌리지 않음, 나중에 쇼핑 태그로 연결).
+  const pinned = buildPinnedComment("이거 품절 전에 보세요");
+  assert.ok(!pinned.includes("http") && !pinned.includes("링크"));
+  assert.ok(pinned.startsWith("이거 품절 전에 보세요"));
+  assert.ok(pinned.endsWith(COUPANG_DISCLOSURE));
 });

@@ -62,7 +62,7 @@ const ProductScriptSchema = z.object({
   youtubeTitle: z.string().describe("유튜브 제목 (40자 이내, 검색될 상품 키워드 포함)"),
   hashtags: z.array(z.string()).describe("해시태그 5개, # 포함"),
   description: z.string().describe("설명란 본문 2~3줄 (링크·광고 문구는 쓰지 마라, 서버가 붙인다)"),
-  pinnedComment: z.string().describe("고정 댓글 첫 줄. 링크를 누르고 싶게 만드는 한 줄"),
+  pinnedComment: z.string().describe("고정 댓글 한 줄. 댓글을 달고 싶게 만드는 질문이나 한마디 (링크 얘기 금지)"),
 });
 
 export type ProductScene = z.infer<typeof SceneSchema> & { index: number; imageUrl: string };
@@ -85,7 +85,7 @@ export type ProductInput = {
 // 프롬프트
 // ---------------------------------------------------------------------------
 
-const buildInstruction = (input: ProductInput): string => `너는 한국 유튜브 쇼핑 쇼츠 전문 작가야. 목표는 딱 하나 — 끝까지 보게 하고, 고정 댓글의 링크를 누르게 만드는 것.
+const buildInstruction = (input: ProductInput): string => `너는 한국 유튜브 쇼핑 쇼츠 전문 작가야. 목표는 딱 하나 — 끝까지 보고 "이거 사고 싶다"는 마음이 들게 만드는 것.
 
 지금 상품 사진 ${input.imageUrls.length}장(올린 순서대로 1번부터), 상품 정보, 실제 구매자 후기를 받았다.
 
@@ -112,7 +112,7 @@ ${input.reviews}
 - 3장면(해결): 상품을 보여주며 핵심 장점 하나.
 - 4~5장면(증거): 후기 장면. reviewQuote를 채우고, 나레이션은 그 후기를 전하는 말("구매자분이 이랬어요", "이런 후기가 제일 많아요").
 - 후기에 단점이 있으면 한 장면에서 솔직하게 짧게 말한다. 단점을 숨기지 않는 게 신뢰를 만든다.
-- 마지막: 가격(있으면)과 "링크는 고정 댓글에" 로 짧게 끝낸다.
+- 마지막: 가격(있으면)이나 후기 한 줄로 여운 있게 짧게 끝낸다. 링크·구매처·"고정 댓글" 얘기는 하지 마라 — 쇼츠 링크는 눌리지 않고, 나중에 쇼핑 태그("제품 보기")로 연결한다.
 - 후기 장면(reviewQuote가 있는 장면)은 2~3개. 나머지 장면의 reviewQuote는 빈 문자열.
 
 【첫 문장 후보 hooks】 5개, 유형을 섞어라:
@@ -214,7 +214,7 @@ export const generateProductScript = async (input: ProductInput): Promise<Produc
     ...parsed,
     scenes,
     description: buildDescription(parsed.description, parsed.hashtags, input.link),
-    pinnedComment: buildPinnedComment(parsed.pinnedComment, input.link),
+    pinnedComment: buildPinnedComment(parsed.pinnedComment),
     warnings,
   };
 };
