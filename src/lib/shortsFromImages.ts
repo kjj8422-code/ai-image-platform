@@ -51,7 +51,7 @@ const StoryboardSchema = z.object({
   bgmMood: z.enum(AI_BGM_MOODS),
   scenes: z
     .array(SceneSchema)
-    .describe("이야기 순서대로. 사진 수와 같은 개수여야 한다"),
+    .describe("이야기 순서대로. 장면 수는 【사진 고르기】 규칙을 따른다"),
 });
 
 export type ImageStoryboardScene = z.infer<typeof SceneSchema> & {
@@ -65,6 +65,7 @@ export type ImageStoryboardScene = z.infer<typeof SceneSchema> & {
 export const takeUsableScenes = <T extends { imageIndex: number }>(
   scenes: T[],
   imageCount: number,
+  maxScenes: number = MAX_SCENES,
 ): T[] => {
   const used = new Set<number>();
   const kept: T[] = [];
@@ -73,7 +74,7 @@ export const takeUsableScenes = <T extends { imageIndex: number }>(
     if (!Number.isInteger(n) || n < 1 || n > imageCount || used.has(n)) continue;
     used.add(n);
     kept.push(scene);
-    if (kept.length >= MAX_SCENES) break;
+    if (kept.length >= maxScenes) break;
   }
   return kept;
 };
@@ -82,18 +83,50 @@ export type ImageStoryboard = {
   thumbnailCopy: string;
   bgmMood: z.infer<typeof StoryboardSchema>["bgmMood"];
   scenes: ImageStoryboardScene[];
+  // 사용자가 장면 수를 정했을 때 그 값. AI가 그보다 적게 돌려주면 화면에서 알린다.
+  requestedSceneCount: number | null;
 };
 
-const buildInstruction = (imageCount: number): string => `너는 10년차 B급/C급 바이럴 숏폼 작가야. 한국 유튜브 쇼츠·인스타 릴스에서 스크롤을 멈추게 만드는 썰을 쓴다.
+// 사용자가 장면 수를 직접 정했으면 그 수를, 아니면 null(AI가 이야기에 맞게 고른다).
+// 사진 수보다 많은 장면은 만들 수 없고(같은 사진 재사용 금지), 이야기 뼈대가 다섯
+// 박자라 MIN_SCENES 아래로는 받지 않는다.
+export const resolveSceneCount = (requested: unknown, imageCount: number): number | null => {
+  if (typeof requested !== "number" || !Number.isInteger(requested)) return null;
+  if (requested < MIN_SCENES || requested > Math.min(imageCount, MAX_IMAGES)) return null;
+  return requested;
+};
 
-지금 사진 ${imageCount}장을 받았어. 올린 순서는 아무 의미 없다.
-
-【사진 고르기】 이게 제일 중요하다. 받은 사진을 다 쓰지 마라.
+// 【사진 고르기】 규칙. 장면 수를 사람이 정했으면 AI는 "몇 장 쓸지"가 아니라 "어느
+// 사진을 어떤 순서로 쓸지"만 고민하게 한다.
+const pickingRules = (imageCount: number, sceneCount: number | null): string => {
+  if (sceneCount === null) {
+    return `【사진 고르기】 이게 제일 중요하다. 받은 사진을 다 쓰지 마라.
 - 올라온 사진에는 한 이야기로 묶이는 것들과, 그냥 같은 날 찍혔을 뿐인 것들이 섞여 있다. 하나의 이야기가 되는 사진만 고르고 나머지는 과감히 버려라.
 - 안 어울리는 사진을 끼워 넣으면, 그 사진을 설명하려고 군더더기 장면이 생기고 반전까지 거기 맞춰 비틀려서 이야기 전체가 무너진다. 사진 한 장 살리려다 영상을 버리는 짓이다. 버린 사진은 다음 영상에 쓰면 된다.
 - 장면은 ${MIN_SCENES}~${MAX_SCENES}개로 만든다. 기준은 6개다. 사진이 ${imageCount}장이어도 ${MAX_SCENES}개를 넘기지 마라.
 - 최소치인 ${MIN_SCENES}개로 도망가지 마라. 아래 이야기 뼈대가 다섯 박자라서, 장면을 줄이면 반전이나 의심 중 하나가 통째로 빠지고 훅만 있고 이야기가 없는 영상이 된다. 완성본이 18~30초는 나와야 한다. 10초대로 끝나면 이야기를 덜 만든 것이다.
-- 쓸 사진이 부족해서가 아니라, 이야기가 진짜 그만큼이어서 짧아진 경우에만 ${MIN_SCENES}개로 간다.
+- 쓸 사진이 부족해서가 아니라, 이야기가 진짜 그만큼이어서 짧아진 경우에만 ${MIN_SCENES}개로 간다.`;
+  }
+  const all = sceneCount === imageCount;
+  const perLine =
+    sceneCount >= 10
+      ? "장면이 많으니 한 줄은 8~18자로 짧고 빠르게 끊어라. 템포가 생명이다."
+      : "한 줄 길이는 아래 나레이션 규칙을 따른다.";
+  return `【사진 고르기】 장면 수는 사용자가 정했다: 정확히 ${sceneCount}개. 더 많거나 적게 만들면 실패다.
+- ${
+    all
+      ? `받은 사진 ${imageCount}장을 전부, 한 장씩 한 번만 쓴다. 버리는 사진은 없다.`
+      : `받은 ${imageCount}장 중에서 하나의 이야기로 가장 잘 묶이는 ${sceneCount}장을 골라라. 나머지 ${imageCount - sceneCount}장은 버린다.`
+  }
+- 어울리지 않아 보이는 사진도 이야기 안에서 역할을 줘라(전환, 의심, 반전의 증거 등). 설명하려고 군더더기 장면을 만들지 말고 한 줄로 넘겨라.
+- ${perLine} 완성본은 대략 ${Math.round(sceneCount * 2.6)}~${Math.round(sceneCount * 3.6)}초가 된다.`;
+};
+
+const buildInstruction = (imageCount: number, sceneCount: number | null): string => `너는 10년차 B급/C급 바이럴 숏폼 작가야. 한국 유튜브 쇼츠·인스타 릴스에서 스크롤을 멈추게 만드는 썰을 쓴다.
+
+지금 사진 ${imageCount}장을 받았어. 올린 순서는 아무 의미 없다.
+
+${pickingRules(imageCount, sceneCount)}
 - 각 장면의 imageIndex에 그 장면에서 쓸 사진 번호(1~${imageCount}, 올린 순서 기준)를 적는다. 같은 사진을 두 번 쓰지 마라.
 - 고른 사진들은 가장 재밌는 이야기가 되도록 네가 순서를 정해라. 올린 순서를 따를 필요 없다.
 
@@ -160,6 +193,7 @@ export class MissingAnthropicKeyError extends Error {
 
 export const generateStoryboardFromImages = async (
   imageUrls: string[],
+  sceneCount: number | null = null,
 ): Promise<ImageStoryboard> => {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -181,7 +215,7 @@ export const generateStoryboardFromImages = async (
             type: "image" as const,
             source: { type: "url" as const, url },
           })),
-          { type: "text" as const, text: buildInstruction(imageUrls.length) },
+          { type: "text" as const, text: buildInstruction(imageUrls.length, sceneCount) },
         ],
       },
     ],
@@ -200,7 +234,11 @@ export const generateStoryboardFromImages = async (
   }
 
   // 장면 수가 이미지 수와 어긋나면 뒤쪽 합성이 전부 틀어지므로 여기서 맞춘다.
-  const usable = takeUsableScenes(parsed.scenes, imageUrls.length);
+  const usable = takeUsableScenes(
+    parsed.scenes,
+    imageUrls.length,
+    sceneCount ?? MAX_SCENES,
+  );
   if (usable.length < MIN_SCENES) {
     throw new Error(
       `쓸 만한 장면이 ${usable.length}개뿐이라 이야기가 안 됩니다. 다시 시도해주세요.`,
@@ -216,5 +254,6 @@ export const generateStoryboardFromImages = async (
     thumbnailCopy: parsed.thumbnailCopy.trim(),
     bgmMood: parsed.bgmMood,
     scenes,
+    requestedSceneCount: sceneCount,
   };
 };

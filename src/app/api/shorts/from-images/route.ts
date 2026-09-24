@@ -6,6 +6,7 @@ import {
   MIN_IMAGES,
   MissingAnthropicKeyError,
   generateStoryboardFromImages,
+  resolveSceneCount,
 } from "@/lib/shortsFromImages";
 
 export const maxDuration = 60;
@@ -44,7 +45,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const storyboard = await generateStoryboardFromImages(imageUrls);
+    // 사용자가 장면 수를 골랐으면 그대로, "AI가 정하기"면 null.
+    const sceneCount = resolveSceneCount(body?.sceneCount, imageUrls.length);
+    const storyboard = await generateStoryboardFromImages(imageUrls, sceneCount);
     return NextResponse.json(storyboard);
   } catch (err) {
     console.error("이미지 기반 시나리오 생성 오류:", err);

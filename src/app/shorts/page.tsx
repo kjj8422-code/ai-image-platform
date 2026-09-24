@@ -23,7 +23,12 @@ type Storyboard = {
   thumbnailCopy: string;
   bgmMood: string;
   scenes: Scene[];
+  requestedSceneCount?: number | null;
 };
+
+// 장면 수 고르기의 최소값. 서버(shortsFromImages.ts의 MIN_SCENES)와 같아야 한다 —
+// 그 파일은 AI SDK를 불러와서 화면 코드에서 직접 import하지 않는다.
+const PICKABLE_MIN_SCENES = 5;
 
 const MIN_IMAGES = 5;
 const MAX_IMAGES = 15;
@@ -72,6 +77,8 @@ export default function ShortsPage() {
 
   const [step, setStep] = useState<Step>("idle");
   const [uploadedCount, setUploadedCount] = useState(0);
+  // "auto"면 AI가 이야기에 맞는 사진만 골라 장면 수를 정한다. 숫자면 정확히 그만큼.
+  const [sceneChoice, setSceneChoice] = useState<"auto" | number>("auto");
   const [errorMessage, setErrorMessage] = useState("");
   const [storyboard, setStoryboard] = useState<Storyboard | null>(null);
   const [thumbnailUrl, setThumbnailUrl] = useState("");
@@ -269,7 +276,12 @@ export default function ShortsPage() {
       const analyzeResponse = await authedFetch("/api/shorts/from-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageUrls }),
+        body: JSON.stringify({
+          imageUrls,
+          // 사진을 지워서 고른 수보다 적어졌으면 남은 사진 수로 맞춘다.
+          sceneCount:
+            sceneChoice === "auto" ? undefined : Math.min(sceneChoice, imageUrls.length),
+        }),
       });
       const board = await readJson<Storyboard & { error?: string }>(
         analyzeResponse,
@@ -424,6 +436,40 @@ export default function ShortsPage() {
           </div>
         )}
 
+        {files.length >= PICKABLE_MIN_SCENES && (
+          <label className="flex flex-wrap items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+            장면 수
+            <select
+              value={
+                sceneChoice === "auto" ? "auto" : String(Math.min(sceneChoice, files.length))
+              }
+              onChange={(event) =>
+                setSceneChoice(
+                  event.target.value === "auto" ? "auto" : Number(event.target.value),
+                )
+              }
+              className="rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm dark:border-zinc-700"
+            >
+              <option value="auto">AI가 정하기 (이야기에 맞는 사진만 골라요)</option>
+              {Array.from(
+                { length: files.length - PICKABLE_MIN_SCENES + 1 },
+                (_, i) => PICKABLE_MIN_SCENES + i,
+              ).map((n) => (
+                <option key={n} value={n}>
+                  {n}장면{n === files.length ? " (사진 전부 사용)" : ` (사진 ${files.length}장 중 ${n}장)`}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-zinc-400">
+              {sceneChoice === "auto"
+                ? "보통 6장면, 약 20~30초"
+                : `약 ${Math.round(Math.min(sceneChoice, files.length) * 2.6)}~${Math.round(
+                    Math.min(sceneChoice, files.length) * 3.6,
+                  )}초`}
+            </span>
+          </label>
+        )}
+
         <button
           type="button"
           onClick={() => void handleGenerate()}
@@ -452,8 +498,11 @@ export default function ShortsPage() {
             {/* 줄바꿈을 넣으면 JSX가 그 사이 공백을 지워서 "골라6개"로 붙는다 */}
             올린 {files.length}장 중 {storyboard.scenes.length}장을 골라{" "}
             {storyboard.scenes.length}개 장면으로 만들었어요.
-            {files.length > storyboard.scenes.length &&
-              " 빠진 사진은 이야기에 안 맞아 뺀 것이고, 다음 영상에 쓰시면 됩니다."}
+            {storyboard.requestedSceneCount &&
+            storyboard.scenes.length < storyboard.requestedSceneCount
+              ? ` 요청한 ${storyboard.requestedSceneCount}장면 중 ${storyboard.scenes.length}장면만 쓸 수 있었어요(AI가 같은 사진을 두 번 고른 장면은 뺐어요). 다시 생성하면 맞춰질 수 있어요.`
+              : files.length > storyboard.scenes.length &&
+                " 빠진 사진은 이야기에 안 맞아 뺀 것이고, 다음 영상에 쓰시면 됩니다."}
           </p>
 
           <div className="flex flex-col gap-4 sm:flex-row">
