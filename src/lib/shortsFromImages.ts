@@ -87,6 +87,16 @@ export type ImageStoryboard = {
   requestedSceneCount: number | null;
 };
 
+// 장면당 목표 시간. PC 합성기(build_shorts.py)는 대사가 짧아도 장면을 최소
+// MIN_SCENE_SECONDS(2.4초)는 보여주므로, 영상 길이는 적어도 장면 수 x 2.4초가 된다.
+export const SCENE_MIN_SECONDS = 2.4;
+export const SCENE_MAX_SECONDS = 3.6;
+
+export const sceneSecondsRange = (sceneCount: number): { min: number; max: number } => ({
+  min: Math.round(sceneCount * SCENE_MIN_SECONDS),
+  max: Math.round(sceneCount * SCENE_MAX_SECONDS),
+});
+
 // 사용자가 장면 수를 직접 정했으면 그 수를, 아니면 null(AI가 이야기에 맞게 고른다).
 // 사진 수보다 많은 장면은 만들 수 없고(같은 사진 재사용 금지), 이야기 뼈대가 다섯
 // 박자라 MIN_SCENES 아래로는 받지 않는다.
@@ -108,10 +118,7 @@ const pickingRules = (imageCount: number, sceneCount: number | null): string => 
 - 쓸 사진이 부족해서가 아니라, 이야기가 진짜 그만큼이어서 짧아진 경우에만 ${MIN_SCENES}개로 간다.`;
   }
   const all = sceneCount === imageCount;
-  const perLine =
-    sceneCount >= 10
-      ? "장면이 많으니 한 줄은 8~18자로 짧고 빠르게 끊어라. 템포가 생명이다."
-      : "한 줄 길이는 아래 나레이션 규칙을 따른다.";
+  const seconds = sceneSecondsRange(sceneCount);
   return `【사진 고르기】 장면 수는 사용자가 정했다: 정확히 ${sceneCount}개. 더 많거나 적게 만들면 실패다.
 - ${
     all
@@ -119,7 +126,9 @@ const pickingRules = (imageCount: number, sceneCount: number | null): string => 
       : `받은 ${imageCount}장 중에서 하나의 이야기로 가장 잘 묶이는 ${sceneCount}장을 골라라. 나머지 ${imageCount - sceneCount}장은 버린다.`
   }
 - 어울리지 않아 보이는 사진도 이야기 안에서 역할을 줘라(전환, 의심, 반전의 증거 등). 설명하려고 군더더기 장면을 만들지 말고 한 줄로 넘겨라.
-- ${perLine} 완성본은 대략 ${Math.round(sceneCount * 2.6)}~${Math.round(sceneCount * 3.6)}초가 된다.`;
+- 【길이】 장면이 늘면 영상도 그만큼 길어진다. 장면 하나는 사진을 보고 이해할 시간이 있어야 하므로 한 장면에 약 3초(한글 15~28자)씩 말해라. 완성본은 약 ${seconds.min}~${seconds.max}초가 되어야 한다.
+- 장면 수에 맞춰 대사를 줄여서 시간을 맞추지 마라. 장면마다 대사가 1~2초로 짧아지면 사진이 휙휙 넘어가서 시청자가 따라오지 못하고 바로 넘긴다.
+- 리듬용 짧은 한마디(8자 이하)는 영상 전체에서 한두 번만. 그 장면은 사진이 조금 더 머물며 한 박자 쉬어 간다.`;
 };
 
 const buildInstruction = (imageCount: number, sceneCount: number | null): string => `너는 10년차 B급/C급 바이럴 숏폼 작가야. 한국 유튜브 쇼츠·인스타 릴스에서 스크롤을 멈추게 만드는 썰을 쓴다.

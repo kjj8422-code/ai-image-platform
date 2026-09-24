@@ -29,6 +29,11 @@ type Storyboard = {
 // 장면 수 고르기의 최소값. 서버(shortsFromImages.ts의 MIN_SCENES)와 같아야 한다 —
 // 그 파일은 AI SDK를 불러와서 화면 코드에서 직접 import하지 않는다.
 const PICKABLE_MIN_SCENES = 5;
+// 장면당 시간(초). PC 합성기는 대사가 짧아도 장면을 최소 2.4초 보여주고(build_shorts.py
+// MIN_SCENE_SECONDS), 음성은 공백·부호 빼고 초당 약 7자를 읽는다.
+const SCENE_MIN_SECONDS = 2.4;
+const SCENE_MAX_SECONDS = 3.6;
+const TTS_CHARS_PER_SECOND = 7;
 
 const MIN_IMAGES = 5;
 const MAX_IMAGES = 15;
@@ -463,8 +468,8 @@ export default function ShortsPage() {
             <span className="text-xs text-zinc-400">
               {sceneChoice === "auto"
                 ? "보통 6장면, 약 20~30초"
-                : `약 ${Math.round(Math.min(sceneChoice, files.length) * 2.6)}~${Math.round(
-                    Math.min(sceneChoice, files.length) * 3.6,
+                : `약 ${Math.round(Math.min(sceneChoice, files.length) * SCENE_MIN_SECONDS)}~${Math.round(
+                    Math.min(sceneChoice, files.length) * SCENE_MAX_SECONDS,
                   )}초`}
             </span>
           </label>
@@ -497,7 +502,16 @@ export default function ShortsPage() {
           <p className="-mt-3 text-xs text-zinc-500 dark:text-zinc-400">
             {/* 줄바꿈을 넣으면 JSX가 그 사이 공백을 지워서 "골라6개"로 붙는다 */}
             올린 {files.length}장 중 {storyboard.scenes.length}장을 골라{" "}
-            {storyboard.scenes.length}개 장면으로 만들었어요.
+            {storyboard.scenes.length}개 장면으로 만들었어요. 예상 길이 약{" "}
+            {Math.round(
+              storyboard.scenes.reduce(
+                (sum, scene) =>
+                  sum +
+                  Math.max(inkLength(scene.narration) / TTS_CHARS_PER_SECOND, SCENE_MIN_SECONDS),
+                0,
+              ),
+            )}
+            초(대사가 짧은 장면은 사진이 {SCENE_MIN_SECONDS}초 머물러요).
             {storyboard.requestedSceneCount &&
             storyboard.scenes.length < storyboard.requestedSceneCount
               ? ` 요청한 ${storyboard.requestedSceneCount}장면 중 ${storyboard.scenes.length}장면만 쓸 수 있었어요(AI가 같은 사진을 두 번 고른 장면은 뺐어요). 다시 생성하면 맞춰질 수 있어요.`
