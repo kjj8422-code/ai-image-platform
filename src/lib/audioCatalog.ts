@@ -104,3 +104,26 @@ export const aiBgmMenu = (): string =>
   BGM_ENTRIES.filter((e) => e.hint)
     .map((e) => `${e.mood} (${e.hint})`)
     .join(", ");
+
+// 미리듣기로 틀 파일을 정한다. 웹 서버에는 저장소에 들어 있는 기본 음원만 있다.
+// - 효과음: 기본 제공 소리만 들을 수 있다("내 효과음" 칸은 사장님 PC에만 있다).
+// - 배경음악: 직접 넣는 칸은 비어 있으면 대신 나오는 기본 곡(family)을 들려준다.
+//   PC에 곡을 넣었다면 실제 영상에는 그 곡이 나온다는 점은 화면에서 안내한다.
+export type PreviewFile = { kind: "sfx" | "bgm"; name: string; isStandIn: boolean };
+
+export const resolvePreviewFile = (kind: string, name: string): PreviewFile | null => {
+  if (kind === "sfx") {
+    const entry = sfxByCue.get(name);
+    return entry?.hint && entry.cue !== "none"
+      ? { kind: "sfx", name: entry.cue, isStandIn: false }
+      : null;
+  }
+  if (kind === "bgm") {
+    const entry = bgmByMood.get(name);
+    if (!entry) return null;
+    return entry.hint
+      ? { kind: "bgm", name: entry.mood, isStandIn: false }
+      : { kind: "bgm", name: entry.family, isStandIn: true };
+  }
+  return null;
+};

@@ -8,6 +8,7 @@ import { readJson } from "@/lib/readJson";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import { BGM_GROUPS, type BgmMood } from "@/lib/audioCatalog";
 import { AudioHelp } from "@/components/AudioHelp";
+import { AudioPreviewButton } from "@/components/AudioPreviewButton";
 import { MOCK_PROVIDER_MODEL } from "@/lib/videoBudget";
 
 // 사진 쇼츠(../page.tsx)와 같은 업로드 제약 재사용.
@@ -613,16 +614,19 @@ function VideoShortsPageInner() {
               {STYLE_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
             </select>
           </label>
-          <label className="flex items-center gap-2">
-            배경음악
-            <select value={bgmMood} onChange={(e) => setBgmMood(e.target.value as BgmMood)} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
-              {BGM_GROUPS.map(({ group, items }) => (
-                <optgroup key={group} label={group}>
-                  {items.map((entry) => <option key={entry.mood} value={entry.mood}>{entry.label}</option>)}
-                </optgroup>
-              ))}
-            </select>
-          </label>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2">
+              배경음악
+              <select value={bgmMood} onChange={(e) => setBgmMood(e.target.value as BgmMood)} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
+                {BGM_GROUPS.map(({ group, items }) => (
+                  <optgroup key={group} label={group}>
+                    {items.map((entry) => <option key={entry.mood} value={entry.mood}>{entry.label}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+            <AudioPreviewButton kind="bgm" name={bgmMood} />
+          </div>
         </div>
         <AudioHelp />
 
