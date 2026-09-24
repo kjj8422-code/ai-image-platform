@@ -45,8 +45,9 @@ test("장면 수는 최소치 이상, 올린 사진 수 이하일 때만 받는�
   assert.equal(resolveSceneCount(undefined, 10), null); // AI가 정하기
 });
 
-test("장면이 늘면 목표 영상 길이도 늘어난다 (장면당 2.4~3.6초)", () => {
-  assert.deepEqual(sceneSecondsRange(6), { min: 14, max: 22 });
-  assert.deepEqual(sceneSecondsRange(10), { min: 24, max: 36 });
-  assert.deepEqual(sceneSecondsRange(15), { min: 36, max: 54 });
+test("장면이 늘면 목표 영상 길이도 늘어난다 (장면당 3~4.2초)", () => {
+  // 6장면은 "AI가 정하기"(18~30초)와 같은 구간이어야 한다 — 직접 골랐다고 짧아지면 안 된다.
+  assert.deepEqual(sceneSecondsRange(6), { min: 18, max: 25 });
+  assert.deepEqual(sceneSecondsRange(10), { min: 30, max: 42 });
+  assert.deepEqual(sceneSecondsRange(15), { min: 45, max: 63 });
 });

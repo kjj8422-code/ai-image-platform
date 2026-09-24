@@ -87,14 +87,15 @@ export type ImageStoryboard = {
   requestedSceneCount: number | null;
 };
 
-// 장면당 목표 시간. PC 합성기(build_shorts.py)는 대사가 짧아도 장면을 최소
-// MIN_SCENE_SECONDS(2.4초)는 보여주므로, 영상 길이는 적어도 장면 수 x 2.4초가 된다.
-export const SCENE_MIN_SECONDS = 2.4;
-export const SCENE_MAX_SECONDS = 3.6;
+// 장면당 "목표" 시간. 6장면이면 18~25초로 "AI가 정하기"의 18~30초와 맞는다.
+// (PC 합성기의 최소 2.4초는 사진이 휙 지나가지 않게 막는 바닥선일 뿐, 목표가 아니다.
+// 바닥선을 목표로 쓰면 같은 6장면이 14초짜리로 짧아진다 — 실제로 그렇게 잘못 넣었었다.)
+export const SCENE_TARGET_MIN_SECONDS = 3.0;
+export const SCENE_TARGET_MAX_SECONDS = 4.2;
 
 export const sceneSecondsRange = (sceneCount: number): { min: number; max: number } => ({
-  min: Math.round(sceneCount * SCENE_MIN_SECONDS),
-  max: Math.round(sceneCount * SCENE_MAX_SECONDS),
+  min: Math.round(sceneCount * SCENE_TARGET_MIN_SECONDS),
+  max: Math.round(sceneCount * SCENE_TARGET_MAX_SECONDS),
 });
 
 // 사용자가 장면 수를 직접 정했으면 그 수를, 아니면 null(AI가 이야기에 맞게 고른다).
@@ -126,7 +127,7 @@ const pickingRules = (imageCount: number, sceneCount: number | null): string => 
       : `받은 ${imageCount}장 중에서 하나의 이야기로 가장 잘 묶이는 ${sceneCount}장을 골라라. 나머지 ${imageCount - sceneCount}장은 버린다.`
   }
 - 어울리지 않아 보이는 사진도 이야기 안에서 역할을 줘라(전환, 의심, 반전의 증거 등). 설명하려고 군더더기 장면을 만들지 말고 한 줄로 넘겨라.
-- 【길이】 장면이 늘면 영상도 그만큼 길어진다. 장면 하나는 사진을 보고 이해할 시간이 있어야 하므로 한 장면에 약 3초(한글 15~28자)씩 말해라. 완성본은 약 ${seconds.min}~${seconds.max}초가 되어야 한다.
+- 【길이】 장면이 늘면 영상도 그만큼 길어진다. 장면 하나는 사진을 보고 이해할 시간이 있어야 하므로 한 장면에 약 3~4초(한글 20~30자)씩 말해라. 완성본은 약 ${seconds.min}~${seconds.max}초가 되어야 한다.
 - 장면 수에 맞춰 대사를 줄여서 시간을 맞추지 마라. 장면마다 대사가 1~2초로 짧아지면 사진이 휙휙 넘어가서 시청자가 따라오지 못하고 바로 넘긴다.
 - 리듬용 짧은 한마디(8자 이하)는 영상 전체에서 한두 번만. 그 장면은 사진이 조금 더 머물며 한 박자 쉬어 간다.`;
 };

@@ -32,7 +32,9 @@ const PICKABLE_MIN_SCENES = 5;
 // 장면당 시간(초). PC 합성기는 대사가 짧아도 장면을 최소 2.4초 보여주고(build_shorts.py
 // MIN_SCENE_SECONDS), 음성은 공백·부호 빼고 초당 약 7자를 읽는다.
 const SCENE_MIN_SECONDS = 2.4;
-const SCENE_MAX_SECONDS = 3.6;
+// 장면당 목표 시간(shortsFromImages.ts의 SCENE_TARGET_*와 같아야 한다).
+const SCENE_TARGET_MIN_SECONDS = 3.0;
+const SCENE_TARGET_MAX_SECONDS = 4.2;
 const TTS_CHARS_PER_SECOND = 7;
 
 const MIN_IMAGES = 5;
@@ -468,8 +470,8 @@ export default function ShortsPage() {
             <span className="text-xs text-zinc-400">
               {sceneChoice === "auto"
                 ? "보통 6장면, 약 20~30초"
-                : `약 ${Math.round(Math.min(sceneChoice, files.length) * SCENE_MIN_SECONDS)}~${Math.round(
-                    Math.min(sceneChoice, files.length) * SCENE_MAX_SECONDS,
+                : `약 ${Math.round(Math.min(sceneChoice, files.length) * SCENE_TARGET_MIN_SECONDS)}~${Math.round(
+                    Math.min(sceneChoice, files.length) * SCENE_TARGET_MAX_SECONDS,
                   )}초`}
             </span>
           </label>
