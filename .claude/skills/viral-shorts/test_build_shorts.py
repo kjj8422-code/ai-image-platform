@@ -112,6 +112,66 @@ def test_slugify_has_no_trailing_dash_after_truncation():
     assert len(slug) <= 30
 
 
+def _with_audio_dirs(tmp: Path):
+    """기본/직접 넣은 음원 폴더를 임시 폴더로 바꿔 끼운다. 원래 값을 돌려준다."""
+    saved = (bs.SFX_DIR, bs.BGM_DIR, bs.USER_SFX_DIR, bs.USER_BGM_DIR)
+    bs.SFX_DIR, bs.BGM_DIR = tmp / "sfx", tmp / "bgm"
+    bs.USER_SFX_DIR, bs.USER_BGM_DIR = tmp / "user" / "sfx", tmp / "user" / "bgm"
+    for folder in (bs.SFX_DIR, bs.BGM_DIR, bs.USER_SFX_DIR, bs.USER_BGM_DIR):
+        folder.mkdir(parents=True)
+    return saved
+
+
+def _restore_audio_dirs(saved) -> None:
+    bs.SFX_DIR, bs.BGM_DIR, bs.USER_SFX_DIR, bs.USER_BGM_DIR = saved
+
+
+def test_user_sound_wins_over_builtin():
+    """음원넣기로 넣은 소리가 있으면 기본 소리 대신 그걸 써야 한다."""
+    with tempfile.TemporaryDirectory() as tmp:
+        saved = _with_audio_dirs(Path(tmp))
+        try:
+            (bs.SFX_DIR / "pop.mp3").write_bytes(b"x")
+            assert bs.find_sfx("pop") == bs.SFX_DIR / "pop.mp3"
+            (bs.USER_SFX_DIR / "pop.mp3").write_bytes(b"x")
+            assert bs.find_sfx("pop") == bs.USER_SFX_DIR / "pop.mp3"
+            assert bs.find_sfx("my1") is None
+        finally:
+            _restore_audio_dirs(saved)
+
+
+def test_empty_music_slot_falls_back_to_similar_builtin():
+    """'공포' 칸이 비어 있으면 음악이 빠지는 대신 미스터리 곡이 나와야 한다."""
+    with tempfile.TemporaryDirectory() as tmp:
+        saved = _with_audio_dirs(Path(tmp))
+        try:
+            (bs.BGM_DIR / "mystery.mp3").write_bytes(b"x")
+            assert bs.find_bgm("horror") == bs.BGM_DIR / "mystery.mp3"
+            (bs.USER_BGM_DIR / "horror.mp3").write_bytes(b"x")
+            assert bs.find_bgm("horror") == bs.USER_BGM_DIR / "horror.mp3"
+        finally:
+            _restore_audio_dirs(saved)
+
+
+def test_new_moods_borrow_title_and_voice_style():
+    """새 분위기도 제목 색·목소리 톤이 기본값으로 뭉개지지 않고 비슷한 계열을 따른다."""
+    assert bs.mood_family("horror") == "mystery"
+    assert bs.mood_family("action") == "epic"
+    for entry_mood in bs.BGM_FAMILIES:
+        assert bs.mood_family(entry_mood) in bs.TITLE_STYLES, entry_mood
+        assert bs.mood_family(entry_mood) in bs.VOICE_STYLES, entry_mood
+
+
+def test_every_builtin_cue_in_catalog_has_a_file():
+    """웹에서 고를 수 있는 기본 효과음은 전부 실제 파일이 있어야 한다."""
+    import json
+
+    catalog = json.loads(bs.AUDIO_CATALOG_PATH.read_text(encoding="utf-8"))
+    for entry in catalog["sfx"]:
+        if entry.get("hint") and entry["cue"] != "none":
+            assert (bs.SFX_DIR / f"{entry['cue']}.mp3").exists(), entry["cue"]
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

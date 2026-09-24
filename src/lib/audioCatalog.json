@@ -1,0 +1,52 @@
+{
+  "sfx": [
+    { "cue": "boom", "group": "기본", "label": "쿵! (충격·등장)", "hint": "heavy hit, shocking entrance" },
+    { "cue": "suspense", "group": "기본", "label": "두구두구 (긴장 고조)", "hint": "drum roll, rising tension" },
+    { "cue": "reveal", "group": "기본", "label": "짠! (반전 공개)", "hint": "ta-da, twist reveal" },
+    { "cue": "whoosh", "group": "기본", "label": "휙 (빠른 전환)", "hint": "fast swoosh, quick scene change" },
+    { "cue": "pop", "group": "기본", "label": "뽁 (작은 전환)", "hint": "small pop, light transition" },
+    { "cue": "magic", "group": "기본", "label": "샤아아~ (마법·판타지)", "hint": "magical shimmer, fantasy moment" },
+    { "cue": "laugh", "group": "기본", "label": "피식 (코믹 마무리)", "hint": "short female giggle, comic ending" },
+
+    { "cue": "coin", "group": "게임·예능", "label": "띠링 (코인·득템)", "hint": "8-bit coin, got something good" },
+    { "cue": "levelup", "group": "게임·예능", "label": "뾰로롱↑ (레벨업·성공)", "hint": "8-bit level up, small success" },
+    { "cue": "fanfare", "group": "게임·예능", "label": "빰빠밤 (8비트 축하)", "hint": "8-bit victory fanfare, celebration" },
+    { "cue": "fail", "group": "게임·예능", "label": "삐빅 (실패·땡)", "hint": "8-bit error, failure, wrong answer" },
+    { "cue": "buzzer", "group": "게임·예능", "label": "뿌- (안 됨·막힘)", "hint": "short denial buzz, blocked, nope" },
+    { "cue": "boing", "group": "게임·예능", "label": "띠용 (당황·코믹)", "hint": "cartoon boing, confused or awkward moment" },
+
+    { "cue": "impact", "group": "영화·긴장", "label": "둥- (묵직한 한 방)", "hint": "deep cinematic impact" },
+    { "cue": "thud", "group": "영화·긴장", "label": "툭 (허탈·떨어짐)", "hint": "falling thud, letdown" },
+    { "cue": "alarm", "group": "영화·긴장", "label": "경고음 (위기·긴박)", "hint": "cinematic warning, danger" },
+    { "cue": "triumph", "group": "영화·긴장", "label": "웅장한 성공 (대반전)", "hint": "big cinematic triumph, epic payoff" },
+
+    { "cue": "ding", "group": "반짝·감성", "label": "딩~ (알림·깨달음)", "hint": "bright ding, realization" },
+    { "cue": "sparkle", "group": "반짝·감성", "label": "반짝반짝 (몽환·선물)", "hint": "dreamy sparkle, gift or wonder" },
+    { "cue": "chime", "group": "반짝·감성", "label": "차라랑 (영롱한 성공)", "hint": "crystal chime, beautiful success" },
+    { "cue": "bell", "group": "반짝·감성", "label": "띵~ 종소리 (평화·마무리)", "hint": "calm bell, peaceful ending" },
+
+    { "cue": "message", "group": "생활", "label": "뾱 (메시지 도착)", "hint": "phone message arrives" },
+    { "cue": "splash", "group": "생활", "label": "퐁당 (물방울)", "hint": "water drop" },
+    { "cue": "click", "group": "생활", "label": "철컥 (잠금·결심)", "hint": "lock click, decision made" },
+
+    { "cue": "my1", "group": "내 효과음", "label": "내 효과음 1" },
+    { "cue": "my2", "group": "내 효과음", "label": "내 효과음 2" },
+    { "cue": "my3", "group": "내 효과음", "label": "내 효과음 3" },
+
+    { "cue": "none", "group": "기본", "label": "없음 (조용히)", "hint": "silence" }
+  ],
+  "bgm": [
+    { "mood": "mystery", "family": "mystery", "group": "기본 음악", "label": "미스터리 (음산·떡밥)", "hint": "mysterious, eerie" },
+    { "mood": "epic", "family": "epic", "group": "기본 음악", "label": "웅장 (반전·스케일)", "hint": "epic, big twist" },
+    { "mood": "playful", "family": "playful", "group": "기본 음악", "label": "장난 (코믹)", "hint": "playful, comic" },
+    { "mood": "dreamy", "family": "dreamy", "group": "기본 음악", "label": "몽환 (감성·판타지)", "hint": "dreamy, fantasy" },
+    { "mood": "horror", "family": "mystery", "group": "직접 넣는 음악", "label": "공포 (소름·호러)" },
+    { "mood": "sad", "family": "dreamy", "group": "직접 넣는 음악", "label": "슬픔 (감동·눈물)" },
+    { "mood": "upbeat", "family": "playful", "group": "직접 넣는 음악", "label": "신나는 (경쾌·텐션업)" },
+    { "mood": "chill", "family": "dreamy", "group": "직접 넣는 음악", "label": "잔잔 (브이로그·일상)" },
+    { "mood": "action", "family": "epic", "group": "직접 넣는 음악", "label": "긴박 (추격·액션)" },
+    { "mood": "retro", "family": "playful", "group": "직접 넣는 음악", "label": "레트로 (8비트 게임)" },
+    { "mood": "my1", "family": "playful", "group": "직접 넣는 음악", "label": "내 음악 1" },
+    { "mood": "my2", "family": "playful", "group": "직접 넣는 음악", "label": "내 음악 2" }
+  ]
+}

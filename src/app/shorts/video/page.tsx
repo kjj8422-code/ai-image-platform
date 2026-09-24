@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
-import { BGM_MOODS, type BgmMood } from "@/lib/shortsStoryboard";
+import { BGM_GROUPS, type BgmMood } from "@/lib/audioCatalog";
+import { AudioHelp } from "@/components/AudioHelp";
 
 // 사진 쇼츠(../page.tsx)와 같은 업로드 제약 재사용.
 const MIN_IMAGES = 5;
@@ -33,13 +34,6 @@ const BGM_MOOD_BY_STYLE: Record<JobStyle, BgmMood> = {
   jeju_travel: "epic",
   emotional: "dreamy",
   product_ad: "epic",
-};
-
-const BGM_LABEL: Record<BgmMood, string> = {
-  mystery: "미스터리 (음산·떡밥)",
-  epic: "웅장 (반전·스케일)",
-  playful: "장난 (코믹)",
-  dreamy: "몽환 (감성·판타지)",
 };
 
 type JobStatus =
@@ -613,10 +607,15 @@ function VideoShortsPageInner() {
           <label className="flex items-center gap-2">
             배경음악
             <select value={bgmMood} onChange={(e) => setBgmMood(e.target.value as BgmMood)} className="rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700">
-              {BGM_MOODS.map((mood) => <option key={mood} value={mood}>{BGM_LABEL[mood]}</option>)}
+              {BGM_GROUPS.map(({ group, items }) => (
+                <optgroup key={group} label={group}>
+                  {items.map((entry) => <option key={entry.mood} value={entry.mood}>{entry.label}</option>)}
+                </optgroup>
+              ))}
             </select>
           </label>
         </div>
+        <AudioHelp />
 
         <button type="button" onClick={() => void handleCreateJob()} disabled={!canSubmit} className="self-start rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-black">
           {submitting ? `업로드·계획 생성 중... (${Math.min(uploadProgress + 1, files.length)}/${files.length})` : "장면 계획 만들기"}

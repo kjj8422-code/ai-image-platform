@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
-import { BGM_MOODS, SFX_LIBRARY } from "@/lib/shortsStoryboard";
+import { BGM_GROUPS, SFX_GROUPS } from "@/lib/audioCatalog";
+import { AudioHelp } from "@/components/AudioHelp";
 
 type Step = "idle" | "uploading" | "analyzing" | "composing" | "done" | "error";
 
@@ -28,26 +29,6 @@ const MAX_IMAGES = 15;
 // 장면을 지우다 보면 한 장짜리가 남을 수 있는데, 그건 영상이라기보다 정지 이미지다.
 // 더 줄이고 싶으면 사진을 줄여서 다시 만드는 편이 결과가 낫다.
 const MIN_SCENES = 2;
-
-// 큐 이름(boom, reveal...)만 보여주면 어떤 소리인지 알 수 없어서 고를 수가 없다.
-// 파일 이름은 그대로 두고 화면에만 우리말 설명을 붙인다.
-const SFX_LABEL: Record<string, string> = {
-  boom: "쿵! (충격·등장)",
-  magic: "샤아아~ (마법·판타지)",
-  pop: "뽁 (작은 전환)",
-  whoosh: "휙 (빠른 전환)",
-  suspense: "두구두구 (긴장 고조)",
-  reveal: "짠! (반전 공개)",
-  laugh: "피식 (코믹 마무리)",
-  none: "없음 (조용히)",
-};
-
-const BGM_LABEL: Record<string, string> = {
-  mystery: "미스터리 (음산·떡밥)",
-  epic: "웅장 (반전·스케일)",
-  playful: "장난 (코믹)",
-  dreamy: "몽환 (판타지)",
-};
 
 const STEP_LABEL: Record<Step, string> = {
   idle: "",
@@ -591,10 +572,14 @@ export default function ShortsPage() {
                   onChange={(event) => changeBgmMood(event.target.value)}
                   className="min-w-0 flex-1 rounded border border-zinc-300 bg-transparent px-2 py-1 text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
                 >
-                  {BGM_MOODS.map((mood) => (
-                    <option key={mood} value={mood}>
-                      {BGM_LABEL[mood] ?? mood}
-                    </option>
+                  {BGM_GROUPS.map(({ group, items }) => (
+                    <optgroup key={group} label={group}>
+                      {items.map((entry) => (
+                        <option key={entry.mood} value={entry.mood}>
+                          {entry.label}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </select>
               </div>
@@ -674,10 +659,14 @@ export default function ShortsPage() {
                             }
                             className="rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
                           >
-                            {SFX_LIBRARY.map((cue) => (
-                              <option key={cue} value={cue}>
-                                {SFX_LABEL[cue] ?? cue}
-                              </option>
+                            {SFX_GROUPS.map(({ group, items }) => (
+                              <optgroup key={group} label={group}>
+                                {items.map((entry) => (
+                                  <option key={entry.cue} value={entry.cue}>
+                                    {entry.label}
+                                  </option>
+                                ))}
+                              </optgroup>
                             ))}
                           </select>
                         </div>
@@ -693,6 +682,7 @@ export default function ShortsPage() {
                 {storyboard.scenes.length <= MIN_SCENES &&
                   ` 지금은 ${MIN_SCENES}개라 더 뺄 수 없어요.`}
               </p>
+              <AudioHelp />
             </div>
           </div>
 

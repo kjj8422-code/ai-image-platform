@@ -1,7 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
-import { BGM_MOODS, SFX_LIBRARY } from "./shortsStoryboard.ts";
+import {
+  AI_BGM_MOODS,
+  AI_SFX_CUES,
+  aiBgmMenu,
+  aiSfxMenu,
+} from "./audioCatalog.ts";
 
 // 사용자가 올린 이미지 5~10장을 Claude가 직접 "보고" B급 썰체 시나리오를 쓴다.
 //
@@ -34,7 +39,8 @@ const SceneSchema = z.object({
   narration: z
     .string()
     .describe("이 장면에서 읽을 한국어 나레이션 한 줄 (썰체, 2~4초 분량)"),
-  sfx: z.enum(SFX_LIBRARY).describe("이 장면 시작에 깔 효과음 큐"),
+  // "내 효과음" 칸은 PC에 파일이 있는지 모르니 AI에겐 기본 제공 소리만 준다.
+  sfx: z.enum(AI_SFX_CUES).describe("이 장면 시작에 깔 효과음 큐"),
   kenBurns: z.enum(["in", "out"]).describe("느린 줌 방향"),
 });
 
@@ -42,7 +48,7 @@ const StoryboardSchema = z.object({
   thumbnailCopy: z
     .string()
     .describe("3~4단어 한국어 썸네일 문구. 요약이 아니라 반응/훅이어야 한다"),
-  bgmMood: z.enum(BGM_MOODS),
+  bgmMood: z.enum(AI_BGM_MOODS),
   scenes: z
     .array(SceneSchema)
     .describe("이야기 순서대로. 사진 수와 같은 개수여야 한다"),
@@ -134,7 +140,10 @@ const buildInstruction = (imageCount: number): string => `너는 10년차 B급/C
     감탄사는 읽는 억양을 가장 확실하게 바꾸는 장치다. 아끼지 마라.
   · 모든 줄이 부호 없이 끝나면 실패다. 다시 써라.
 
-효과음(sfx)은 장면마다 하나씩 고른다. 첫 장면은 보통 boom이나 suspense, 반전 장면은 reveal이나 laugh가 어울린다. 효과음이 없는 게 나으면 none.
+효과음(sfx)은 장면마다 하나씩 고른다. 고를 수 있는 이름과 소리는 이렇다: ${aiSfxMenu()}.
+첫 장면은 보통 boom이나 suspense, 반전 장면은 reveal이나 laugh가 어울린다. 같은 효과음을 계속 쓰지 말고 장면 분위기에 맞게 섞어라. 효과음이 없는 게 나으면 none.
+
+배경음악(bgmMood)은 영상 전체 분위기에 맞춰 하나 고른다: ${aiBgmMenu()}.
 
 kenBurns는 in(긴장·집중) 또는 out(공개·스케일)을 장면 성격에 맞게 번갈아 쓴다.
 

@@ -1,5 +1,15 @@
 import type Replicate from "replicate";
 import { withRetryOn429 } from "./replicateHelpers.ts";
+import {
+  AI_BGM_MOODS,
+  AI_SFX_CUES,
+  BGM_MOODS,
+  SFX_LIBRARY,
+  aiBgmMenu,
+  aiSfxMenu,
+  type BgmMood,
+  type SfxCue,
+} from "./audioCatalog.ts";
 
 // 제주도 기반 판타지/B급 바이럴 쇼츠용 스토리보드 생성기.
 // 주제 한 줄 -> 6장면 대본 + 장면별 이미지 프롬프트 + SFX/BGM 타임라인을 한 번에 만든다.
@@ -8,27 +18,8 @@ export const SCENE_COUNT = 6;
 
 // 효과음은 AI가 파일을 만들 수 없으므로, 실제로 보유한 파일 이름 집합 안에서만
 // 고르게 한다. 모델이 마음대로 이름을 지어내면 합성 단계에서 매칭이 전부 실패한다.
-export const SFX_LIBRARY = [
-  "boom", // 쿵! — 훅, 충격
-  "magic", // 샤아아~ — 마법/판타지 순간
-  "pop", // 뽁 — 작은 전환
-  "whoosh", // 휙 — 빠른 이동/장면 전환
-  "suspense", // 두구두구 — 긴장 고조
-  "reveal", // 짠! — 반전 공개
-  "laugh", // 피식/ㅋㅋ — 코믹 마무리
-  "none", // 효과음 없음
-] as const;
-
-export type SfxCue = (typeof SFX_LIBRARY)[number];
-
-export const BGM_MOODS = [
-  "mystery", // 미스터리/음산
-  "epic", // 웅장/반전
-  "playful", // 장난스러움/코믹
-  "dreamy", // 몽환/판타지
-] as const;
-
-export type BgmMood = (typeof BGM_MOODS)[number];
+// 목록 자체는 audioCatalog.json에 있다(웹과 PC 합성기가 같이 읽는다).
+export { BGM_MOODS, SFX_LIBRARY, type BgmMood, type SfxCue };
 
 export type StoryboardScene = {
   index: number;
@@ -111,14 +102,14 @@ Rules for "imagePrompt" (English, one per scene):
 - Make the single most concrete visual of that scene unmistakable. If something magical or impossible is happening, the image must literally show it happening, not merely hint at it.
 - Ground it in real Jeju scenery (한라산, 백록담, 성산일출봉, 주상절리, 돌하르방, 검은 현무암 해변, 유채꽈밭, 감귤밭, 해녀, 오름) where it fits the story.
 
-Rules for "sfx": pick exactly one cue name per scene from this fixed list — ${SFX_LIBRARY.join(", ")}. Use "none" when silence serves the scene better. Scene 1 should usually be "boom" or "suspense", and the twist scene should usually be "reveal" or "laugh".
+Rules for "sfx": pick exactly one cue name per scene from this fixed list (name, then what it sounds like) — ${aiSfxMenu()}. Use "none" when silence serves the scene better. Scene 1 should usually be "boom" or "suspense", and the twist scene should usually be "reveal" or "laugh".
 
 Rules for "kenBurns": "in" (slow zoom in, for tension/focus) or "out" (slow zoom out, for reveals/scale). Alternate so consecutive scenes don't feel identical.
 
 Also produce:
 - "propSheet": 이야기가 따라가는 핵심 물건 하나의 생김새를, 장면 어디에 나와도 같은 물건으로 알아볼 수 있을 만큼 구체적인 영어 한 줄로 적어라. 색, 재질, 크기, 형태, 표면의 특징을 넣어라. (예: "a fist-sized smooth black volcanic stone with a glowing amber crack running across it") 이야기에 물건이 없으면 빈 문자열.
 - "thumbnailCopy": a 3 to 4 word Korean thumbnail headline in the same B-grade voice. A reaction/hook, never a summary, and it must not copy words from the topic.
-- "bgmMood": exactly one of ${BGM_MOODS.join(", ")}.
+- "bgmMood": exactly one of ${aiBgmMenu()} (write only the name).
 
 Respond with ONLY a compact JSON object in exactly this shape, no markdown fences, no explanation:
 {"thumbnailCopy":"...","propSheet":"...","bgmMood":"...","scenes":[{"index":1,"narration":"...","imagePrompt":"...","sfx":"...","kenBurns":"in"}, ... ${SCENE_COUNT} scenes total]}
@@ -132,11 +123,13 @@ const extractText = (output: unknown): string => {
   return String(output).trim();
 };
 
+// AI가 고른 값은 AI에게 보여준 칸 안에서만 받는다. "내 효과음" 같은 칸은 PC에
+// 파일이 없을 수 있어서, 거기로 새면 그 장면 소리가 빠진다.
 const isSfxCue = (value: unknown): value is SfxCue =>
-  typeof value === "string" && (SFX_LIBRARY as readonly string[]).includes(value);
+  typeof value === "string" && (AI_SFX_CUES as readonly string[]).includes(value);
 
 const isBgmMood = (value: unknown): value is BgmMood =>
-  typeof value === "string" && (BGM_MOODS as readonly string[]).includes(value);
+  typeof value === "string" && (AI_BGM_MOODS as readonly string[]).includes(value);
 
 type RawScene = {
   index?: unknown;
