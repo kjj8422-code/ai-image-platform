@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import { downloadImage } from "@/lib/downloadImage";
+import { readJson } from "@/lib/readJson";
 import {
   DEFAULT_FORMAT_ID,
   IMAGE_FORMATS,
@@ -15,6 +16,11 @@ type SaveState = "idle" | "saving" | "saved" | "error";
 type DownloadState = "idle" | "downloading" | "error";
 type BgRemoveState = "idle" | "processing" | "error";
 
+// 4장을 서버 요청 한 번에 몰아서 만들면, Replicate가 느리거나 속도 제한으로 기다릴 때
+// 서버 제한 시간(60초)을 넘겨 요청이 통째로 끊긴다. 이미 만든 장은 돈이 나갔는데
+// 화면엔 하나도 안 온다. 그래서 1장씩 따로 요청하고, 오는 대로 바로 보여준다.
+const IMAGES_PER_RUN = 4;
+
 export default function GeneratePage() {
   const { user, loading: userLoading } = useSupabaseUser();
   const [prompt, setPrompt] = useState<string>("");
@@ -22,6 +28,7 @@ export default function GeneratePage() {
   const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [enhancedPrompt, setEnhancedPrompt] = useState<string>("");
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [generatingIndex, setGeneratingIndex] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({});
   const [bgRemoveStates, setBgRemoveStates] = useState<
@@ -54,44 +61,68 @@ export default function GeneratePage() {
     event.preventDefault();
     setErrorMessage("");
     setIsGenerating(true);
+    setImageUrls([]);
+    setEnhancedPrompt("");
     setSaveStates({});
     setBgRemoveStates({});
     setBgRemovedUrls({});
 
+    // 첫 장에서 AI가 번역·보강한 영어 프롬프트를 나머지 장에 그대로 쓴다.
+    // 네 번 따로 보강하면 장마다 다른 그림이 되고 호출 비용도 네 번 든다.
+    let promptForRest = "";
+    let made = 0;
+
     try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      for (let i = 0; i < IMAGES_PER_RUN; i += 1) {
+        setGeneratingIndex(i + 1);
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      if (!session) {
-        throw new Error("로그인이 필요합니다.");
+        if (!session) {
+          throw new Error("로그인이 필요합니다.");
+        }
+
+        const response = await fetch("/api/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify(
+            i === 0
+              ? { prompt, format: formatId, count: 1 }
+              : { prompt: promptForRest, format: formatId, count: 1, enhance: false },
+          ),
+        });
+
+        const result = await readJson(response);
+
+        if (!response.ok) {
+          throw new Error(result?.error ?? "이미지 생성에 실패했습니다.");
+        }
+
+        const urls: string[] = Array.isArray(result.imageUrls) ? result.imageUrls : [];
+        made += urls.length;
+        setImageUrls((prev) => [...prev, ...urls]);
+
+        if (i === 0) {
+          promptForRest =
+            typeof result.enhancedPrompt === "string" && result.enhancedPrompt
+              ? result.enhancedPrompt
+              : prompt;
+          setEnhancedPrompt(promptForRest);
+        }
       }
-
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ prompt, format: formatId }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result?.error ?? "이미지 생성에 실패했습니다.");
-      }
-
-      setImageUrls(Array.isArray(result.imageUrls) ? result.imageUrls : []);
-      setEnhancedPrompt(
-        typeof result.enhancedPrompt === "string" ? result.enhancedPrompt : "",
-      );
     } catch (err) {
+      const reason =
+        err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.";
       setErrorMessage(
-        err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.",
+        made > 0 ? `${made}장까지 만들고 멈췄어요. 만든 이미지는 아래에 있어요. (${reason})` : reason,
       );
     } finally {
       setIsGenerating(false);
+      setGeneratingIndex(0);
     }
   };
 
@@ -117,7 +148,7 @@ export default function GeneratePage() {
       });
 
       if (!response.ok) {
-        const result = await response.json();
+        const result = await readJson(response);
         throw new Error(result?.error ?? "저장에 실패했습니다.");
       }
 
@@ -149,7 +180,7 @@ export default function GeneratePage() {
         body: JSON.stringify({ imageUrl }),
       });
 
-      const result = await response.json();
+      const result = await readJson(response);
 
       if (!response.ok) {
         throw new Error(result?.error ?? "배경 제거에 실패했습니다.");
@@ -165,7 +196,7 @@ export default function GeneratePage() {
 
   if (userLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
+      <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
         <p className="text-sm text-zinc-500">로그인 상태 확인 중...</p>
       </div>
     );
@@ -173,7 +204,7 @@ export default function GeneratePage() {
 
   if (!user) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           이미지 생성은 로그인 후 이용하실 수 있습니다.
         </p>
@@ -188,7 +219,7 @@ export default function GeneratePage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
+    <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
       <div className="flex w-full max-w-2xl items-center justify-between">
         <h1 className="text-2xl font-semibold text-black dark:text-white">
           AI 이미지 생성
@@ -246,8 +277,8 @@ export default function GeneratePage() {
           className="rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
         >
           {isGenerating
-            ? "4장 생성 중... (최대 1분 정도 걸릴 수 있어요)"
-            : "이미지 4장 생성하기"}
+            ? `${generatingIndex}/${IMAGES_PER_RUN}장째 생성 중... (다 된 건 바로 아래에 보여요)`
+            : `이미지 ${IMAGES_PER_RUN}장 생성하기`}
         </button>
       </form>
 

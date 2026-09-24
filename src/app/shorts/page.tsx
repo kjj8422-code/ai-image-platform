@@ -379,7 +379,7 @@ export default function ShortsPage() {
 
   if (userLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
+      <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
         <p className="text-sm text-zinc-500">로그인 상태 확인 중...</p>
       </div>
     );
@@ -387,7 +387,7 @@ export default function ShortsPage() {
 
   if (!user) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           쇼츠 제작은 로그인 후 이용하실 수 있습니다.
         </p>
@@ -409,7 +409,7 @@ export default function ShortsPage() {
       : STEP_LABEL[step];
 
   return (
-    <div className="flex min-h-screen flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
+    <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
       <div className="flex w-full max-w-2xl items-center justify-between">
         <h1 className="text-2xl font-semibold text-black dark:text-white">
           이미지로 쇼츠 만들기

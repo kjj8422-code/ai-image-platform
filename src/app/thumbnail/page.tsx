@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { readJson } from "@/lib/readJson";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 
 type SuggestState = "idle" | "loading" | "error";
@@ -44,6 +45,7 @@ export default function ThumbnailPage() {
   const [composeError, setComposeError] = useState("");
   const [composedUrl, setComposedUrl] = useState("");
   const composedBlobRef = useRef<Blob | null>(null);
+  const composedUrlRef = useRef<string>("");
 
   const [saveState, setSaveState] = useState<SaveState>("idle");
 
@@ -75,7 +77,7 @@ export default function ThumbnailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ script }),
       });
-      const result = await response.json();
+      const result = await readJson(response);
       if (!response.ok) {
         throw new Error(result?.error ?? "문구 추천에 실패했습니다.");
       }
@@ -112,7 +114,7 @@ export default function ThumbnailPage() {
           enhance: false,
         }),
       });
-      const result = await response.json();
+      const result = await readJson(response);
       if (!response.ok) {
         throw new Error(result?.error ?? "배경 생성에 실패했습니다.");
       }
@@ -156,7 +158,7 @@ export default function ThumbnailPage() {
           });
 
           if (!response.ok) {
-            const result = await response.json();
+            const result = await readJson(response);
             throw new Error(result?.error ?? "합성에 실패했습니다.");
           }
 
@@ -165,12 +167,15 @@ export default function ThumbnailPage() {
             return;
           }
           composedBlobRef.current = blob;
-          setComposedUrl((previous) => {
-            if (previous) {
-              URL.revokeObjectURL(previous);
-            }
-            return URL.createObjectURL(blob);
-          });
+          const nextUrl = URL.createObjectURL(blob);
+          if (composedUrlRef.current) {
+            URL.revokeObjectURL(composedUrlRef.current);
+          }
+          composedUrlRef.current = nextUrl;
+          setComposedUrl(nextUrl);
+          // 문구나 배경이 바뀌어 새 이미지가 나왔으면 "저장됨"은 옛 이미지 얘기다.
+          // 그대로 두면 버튼이 잠겨서 새 버전을 저장할 수 없었다.
+          setSaveState("idle");
           setComposeState("idle");
         } catch (err) {
           if (!cancelled) {
@@ -191,14 +196,14 @@ export default function ThumbnailPage() {
     };
   }, [selectedBackground, titleText]);
 
-  // 언마운트 시 만들어둔 objectURL을 정리한다.
+  // 화면을 떠날 때 마지막으로 만든 objectURL을 정리한다. 상태값(composedUrl)을
+  // 직접 쓰면 처음 값("")에 묶여서 정작 마지막 이미지는 정리되지 않는다.
   useEffect(() => {
     return () => {
-      if (composedUrl) {
-        URL.revokeObjectURL(composedUrl);
+      if (composedUrlRef.current) {
+        URL.revokeObjectURL(composedUrlRef.current);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 언마운트 시 1회만 정리하면 됨
   }, []);
 
   const handleDownload = () => {
@@ -230,7 +235,7 @@ export default function ThumbnailPage() {
       });
 
       if (!response.ok) {
-        const result = await response.json();
+        const result = await readJson(response);
         throw new Error(result?.error ?? "저장에 실패했습니다.");
       }
       setSaveState("saved");
@@ -242,7 +247,7 @@ export default function ThumbnailPage() {
 
   if (userLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
+      <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
         <p className="text-sm text-zinc-500">로그인 상태 확인 중...</p>
       </div>
     );
@@ -250,7 +255,7 @@ export default function ThumbnailPage() {
 
   if (!user) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           쇼츠 썸네일 생성은 로그인 후 이용하실 수 있습니다.
         </p>
@@ -265,7 +270,7 @@ export default function ThumbnailPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
+    <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
       <div className="flex w-full max-w-2xl items-center justify-between">
         <h1 className="text-2xl font-semibold text-black dark:text-white">
           쇼츠/릴스 썸네일 생성

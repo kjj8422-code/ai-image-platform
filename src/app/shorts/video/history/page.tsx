@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { readJson } from "@/lib/readJson";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 
 type JobStatus =
@@ -74,7 +75,7 @@ export default function VideoJobHistoryPage() {
         const res = await fetch("/api/shorts/video/jobs", {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
-        const data = await res.json();
+        const data = await readJson(res);
         if (!res.ok) throw new Error(data.error ?? "목록을 불러오지 못했습니다.");
         if (!cancelled) setJobs(data.jobs);
       } catch (err) {
@@ -91,14 +92,14 @@ export default function VideoJobHistoryPage() {
 
   if (userLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
+      <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
         <p className="text-sm text-zinc-500">로그인 상태 확인 중...</p>
       </div>
     );
   }
   if (!user) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">로그인 후 이용할 수 있습니다.</p>
         <Link href="/login" className="rounded-full bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-white dark:text-black">로그인</Link>
       </div>
@@ -106,7 +107,7 @@ export default function VideoJobHistoryPage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
+    <div className="flex flex-1 flex-col items-center gap-6 bg-zinc-50 px-4 py-12 dark:bg-black">
       <div className="flex w-full max-w-2xl items-center justify-between">
         <h1 className="text-2xl font-semibold text-black dark:text-white">내가 만든 AI 영상 쇼츠</h1>
         <Link href="/shorts/video" className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">+ 새로 만들기</Link>

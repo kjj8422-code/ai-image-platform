@@ -1,6 +1,12 @@
 import { getVideoProvider, getDefaultVideoProviderName } from "@/lib/videoProvider";
 import { persistVideoClip } from "@/lib/videoStorage";
 import {
+  MOCK_PROVIDER_MODEL,
+  inFlightRealCostCents,
+  remainingBudgetCents,
+} from "@/lib/videoBudget";
+import {
+  listScenesForJob,
   updateScene,
   incrementJobSpentCents,
   type VideoJob,
@@ -30,7 +36,7 @@ export class BudgetExceededError extends Error {
 export const REAL_VIDEO_PROVIDER_NAME = "runway";
 
 const providerNameForScene = (job: VideoJob, scene: VideoScene): string => {
-  if (scene.providerModel === "mock-echo-v0") return "mock";
+  if (scene.providerModel === MOCK_PROVIDER_MODEL) return "mock";
   if (scene.providerModel) return REAL_VIDEO_PROVIDER_NAME; // 지금 실제 공급자는 이거 하나뿐
   return job.provider ?? getDefaultVideoProviderName();
 };
@@ -51,8 +57,15 @@ export const submitScene = async (
   const provider = getVideoProvider(providerName);
   const estimatedCostCents = provider.estimateCostCents(scene.durationTargetSeconds);
 
-  if (job.maxBudgetCents != null) {
-    const remaining = job.maxBudgetCents - job.spentCents;
+  // 무료 미리보기(mock)는 돈이 안 나가므로 예산과 비교하지 않는다. 예전엔 mock의
+  // 가상 비용까지 비교해서, 예산이 거의 찬 작업에서는 공짜 미리보기조차 막혔다.
+  if (providerName !== "mock" && job.maxBudgetCents != null) {
+    const siblings = await listScenesForJob(job.id);
+    const remaining = remainingBudgetCents(
+      job.maxBudgetCents,
+      job.spentCents,
+      inFlightRealCostCents(siblings, scene.id),
+    );
     if (estimatedCostCents > remaining) {
       throw new BudgetExceededError(estimatedCostCents, remaining);
     }
@@ -78,6 +91,9 @@ export const submitScene = async (
     status: "generating",
     providerJobId: result.providerJobId,
     providerModel: result.providerModel,
+    // 전에 "저장만 실패"했던 임시 주소가 남아 있으면, 새 시도가 실패했을 때 저장
+    // 재시도가 옛 영상을 새 결과처럼 붙여 버린다. 새로 제출할 때 지운다.
+    providerRawUrl: null,
     error: null,
     generationHistory: [...scene.generationHistory, historyEntry],
   });
@@ -102,13 +118,44 @@ const shouldSkipPoll = (scene: VideoScene): boolean => {
   return Date.now() - new Date(scene.lastPolledAt).getTime() < MIN_POLL_INTERVAL_MS;
 };
 
+// 영상은 다 만들어졌는데(=이미 돈을 냈는데) 우리 저장소로 옮기다 실패한 장면.
+// 공급자 임시 주소가 살아 있는 동안 다시 옮겨 본다. 다시 생성하지 않으므로 추가
+// 비용이 없고, 청구액은 처음 실패했을 때 이미 반영했으므로 여기서 더하지 않는다.
+const needsSaveRetry = (scene: VideoScene): boolean =>
+  scene.status === "failed" && Boolean(scene.providerRawUrl) && !scene.videoUrl;
+
+const retrySavingClip = async (job: VideoJob, scene: VideoScene): Promise<VideoScene> => {
+  const nowIso = new Date().toISOString();
+  let permanentUrl: string;
+  try {
+    permanentUrl = await persistVideoClip(job.userId, scene.id, scene.providerRawUrl as string);
+  } catch (err) {
+    console.error(`영상 클립 저장 재시도 실패 (scene ${scene.id}):`, err);
+    return updateScene(scene.id, { lastPolledAt: nowIso });
+  }
+  return updateScene(scene.id, {
+    status: "ready",
+    videoUrl: permanentUrl,
+    error: null,
+    lastPolledAt: nowIso,
+    generationHistory: scene.generationHistory.map((h) =>
+      h.providerJobId === scene.providerJobId
+        ? { ...h, status: "ready" as const, videoUrl: permanentUrl, error: undefined }
+        : h,
+    ),
+  });
+};
+
 // 'generating' 상태인 장면 하나를 한 단계 진행시킨다. 이미 끝났거나(ready/failed/
-// selected) 아직 제출 전(queued)인 장면은 그대로 돌려준다 — 호출부가 상태를 몰라도
+// selected) 아직 제출 전(queued)인 장면은 그대로 돌려준다(저장만 실패한 유료 장면은 저장을 다시 시도한다) — 호출부가 상태를 몰라도
 // 안전하게 모든 장면에 대고 불러도 된다.
 export const advanceScene = async (
   job: VideoJob,
   scene: VideoScene,
 ): Promise<VideoScene> => {
+  if (needsSaveRetry(scene) && !shouldSkipPoll(scene)) {
+    return retrySavingClip(job, scene);
+  }
   if (scene.status !== "generating" || !scene.providerJobId) {
     return scene;
   }

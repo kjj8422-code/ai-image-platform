@@ -4,11 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { readJson } from "@/lib/readJson";
 import { downloadImage } from "@/lib/downloadImage";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import type { GalleryImage } from "@/lib/gallery";
 
-const BRUSH_SIZE = 28;
+// 붓 크기를 픽셀로 고정하면 큰 이미지(예: 1440px)에서는 붓이 바늘처럼 가늘어진다.
+// 이미지 짧은 변의 비율로 정해서 어떤 크기의 이미지든 화면에서 비슷하게 보이게 한다.
+const BRUSH_RATIO = 0.035;
+const MIN_BRUSH_RADIUS = 12;
+
+const brushRadiusFor = (canvas: HTMLCanvasElement): number =>
+  Math.max(MIN_BRUSH_RADIUS, Math.round(Math.min(canvas.width, canvas.height) * BRUSH_RATIO));
 
 export default function EditImagePage() {
   const { user, loading: userLoading } = useSupabaseUser();
@@ -21,7 +28,13 @@ export default function EditImagePage() {
 
   const displayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // 칠한 자리를 보여주는 투명 막. 이미지 위에 겹쳐 두고 막 전체를 반투명하게 한다.
+  // 반투명 빨강을 이미지에 직접 겹쳐 칠하면 선이 겹치는 곳마다 진한 얼룩이 생긴다.
+  const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isPaintingRef = useRef<boolean>(false);
+  // 직전에 칠한 점. 빠르게 문지르면 이벤트 사이가 벌어지는데, 점만 찍으면 선이
+  // 끊긴 점선이 된다. 직전 점과 선으로 이어서 빈틈 없이 칠한다.
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
   const [hasPainted, setHasPainted] = useState<boolean>(false);
 
   const [prompt, setPrompt] = useState<string>("");
@@ -71,7 +84,7 @@ export default function EditImagePage() {
         const response = await fetch("/api/gallery/list", {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
-        const result = await response.json();
+        const result = await readJson(response);
 
         if (!response.ok) {
           throw new Error(result?.error ?? "이미지를 불러오지 못했습니다.");
@@ -121,6 +134,12 @@ export default function EditImagePage() {
       const ctx = displayCanvas.getContext("2d");
       ctx?.drawImage(img, 0, 0);
 
+      const overlayCanvas = overlayCanvasRef.current;
+      if (overlayCanvas) {
+        overlayCanvas.width = img.naturalWidth;
+        overlayCanvas.height = img.naturalHeight;
+      }
+
       const maskCanvas = document.createElement("canvas");
       maskCanvas.width = img.naturalWidth;
       maskCanvas.height = img.naturalHeight;
@@ -147,37 +166,53 @@ export default function EditImagePage() {
   };
 
   const paintAt = (clientX: number, clientY: number) => {
-    const displayCanvas = displayCanvasRef.current;
+    const overlayCanvas = overlayCanvasRef.current;
     const maskCanvas = maskCanvasRef.current;
-    if (!displayCanvas || !maskCanvas) {
+    if (!overlayCanvas || !maskCanvas) {
       return;
     }
 
-    const { x, y } = getCanvasPoint(displayCanvas, clientX, clientY);
+    const point = getCanvasPoint(overlayCanvas, clientX, clientY);
+    const from = lastPointRef.current ?? point;
+    const radius = brushRadiusFor(overlayCanvas);
 
-    // 화면용: 반투명 빨강으로 표시 (사용자에게 "여기를 칠했다"는 피드백용)
-    const displayCtx = displayCanvas.getContext("2d");
-    if (displayCtx) {
-      displayCtx.fillStyle = "rgba(239, 68, 68, 0.5)";
-      displayCtx.beginPath();
-      displayCtx.arc(x, y, BRUSH_SIZE, 0, Math.PI * 2);
-      displayCtx.fill();
+    const stroke = (ctx: CanvasRenderingContext2D, color: string) => {
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = radius * 2;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(point.x, point.y);
+      ctx.stroke();
+      // 제자리에서 톡 찍었을 때(길이 0인 선)도 동그랗게 칠해지도록.
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    // 화면용: 빨강으로 칠한다(막 자체가 반투명이라 이미지가 비쳐 보인다).
+    const overlayCtx = overlayCanvas.getContext("2d");
+    if (overlayCtx) {
+      stroke(overlayCtx, "rgb(239, 68, 68)");
     }
 
     // 실제 마스크용: 순수 흰색 (이 부분이 AI가 새로 그릴 영역)
     const maskCtx = maskCanvas.getContext("2d");
     if (maskCtx) {
-      maskCtx.fillStyle = "white";
-      maskCtx.beginPath();
-      maskCtx.arc(x, y, BRUSH_SIZE, 0, Math.PI * 2);
-      maskCtx.fill();
+      stroke(maskCtx, "white");
     }
 
+    lastPointRef.current = point;
     setHasPainted(true);
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     isPaintingRef.current = true;
+    lastPointRef.current = null;
+    // 손가락·마우스가 캔버스 밖으로 살짝 나갔다 들어와도 칠하던 선이 이어지게 붙잡는다.
+    event.currentTarget.setPointerCapture(event.pointerId);
     paintAt(event.clientX, event.clientY);
   };
 
@@ -190,31 +225,21 @@ export default function EditImagePage() {
 
   const stopPainting = () => {
     isPaintingRef.current = false;
+    lastPointRef.current = null;
   };
 
   const handleClearMask = () => {
-    if (!sourceImage) {
-      return;
+    const overlayCanvas = overlayCanvasRef.current;
+    overlayCanvas
+      ?.getContext("2d")
+      ?.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    const maskCanvas = maskCanvasRef.current;
+    const maskCtx = maskCanvas?.getContext("2d");
+    if (maskCanvas && maskCtx) {
+      maskCtx.fillStyle = "black";
+      maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
     }
-    // 다시 그려서 빨간 칠 자국을 지운다
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const displayCanvas = displayCanvasRef.current;
-      if (displayCanvas) {
-        const ctx = displayCanvas.getContext("2d");
-        ctx?.clearRect(0, 0, displayCanvas.width, displayCanvas.height);
-        ctx?.drawImage(img, 0, 0);
-      }
-      const maskCanvas = maskCanvasRef.current;
-      const maskCtx = maskCanvas?.getContext("2d");
-      if (maskCanvas && maskCtx) {
-        maskCtx.fillStyle = "black";
-        maskCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
-      }
-      setHasPainted(false);
-    };
-    img.src = sourceImage.imageUrl;
+    setHasPainted(false);
   };
 
   const handleSubmit = async () => {
@@ -247,7 +272,7 @@ export default function EditImagePage() {
         body: JSON.stringify({ imageId: sourceImage.id, maskDataUrl, prompt }),
       });
 
-      const result = await response.json();
+      const result = await readJson(response);
 
       if (!response.ok) {
         throw new Error(result?.error ?? "편집에 실패했습니다.");
@@ -292,7 +317,7 @@ export default function EditImagePage() {
       });
 
       if (!response.ok) {
-        const result = await response.json();
+        const result = await readJson(response);
         throw new Error(result?.error ?? "저장에 실패했습니다.");
       }
 
@@ -305,7 +330,7 @@ export default function EditImagePage() {
 
   if (userLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-black">
+      <div className="flex flex-1 items-center justify-center bg-zinc-50 dark:bg-black">
         <p className="text-sm text-zinc-500">로그인 상태 확인 중...</p>
       </div>
     );
@@ -313,7 +338,7 @@ export default function EditImagePage() {
 
   if (!user) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-50 px-4 dark:bg-black">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           편집은 로그인 후 이용하실 수 있습니다.
         </p>
@@ -328,7 +353,7 @@ export default function EditImagePage() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center gap-4 bg-zinc-50 px-4 py-12 dark:bg-black">
+    <div className="flex flex-1 flex-col items-center gap-4 bg-zinc-50 px-4 py-12 dark:bg-black">
       <div className="flex w-full max-w-2xl items-center justify-between">
         <h1 className="text-2xl font-semibold text-black dark:text-white">
           마스킹 편집
@@ -353,14 +378,17 @@ export default function EditImagePage() {
 
       {sourceImage && (
         <div className="flex w-full max-w-2xl flex-col gap-3">
-          <canvas
-            ref={displayCanvasRef}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={stopPainting}
-            onPointerLeave={stopPainting}
-            className="w-full touch-none rounded-xl border border-zinc-200 dark:border-zinc-800"
-          />
+          <div className="relative overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
+            <canvas ref={displayCanvasRef} className="block w-full" />
+            <canvas
+              ref={overlayCanvasRef}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={stopPainting}
+              onPointerCancel={stopPainting}
+              className="absolute inset-0 h-full w-full cursor-crosshair touch-none opacity-50"
+            />
+          </div>
 
           <button
             type="button"
