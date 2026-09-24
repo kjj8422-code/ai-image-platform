@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 // 흩어져 있어서, 한번 들어가면 홈으로 돌아갈 길이 없는 화면이 있었다.
 const LINKS = [
   { href: "/", label: "홈" },
+  { href: "/shorts/product", label: "쿠팡 꿀템" },
   { href: "/generate", label: "이미지 생성" },
   { href: "/gallery", label: "갤러리" },
   { href: "/thumbnail", label: "썸네일" },

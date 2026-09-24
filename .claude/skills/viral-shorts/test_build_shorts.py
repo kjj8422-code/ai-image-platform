@@ -172,6 +172,56 @@ def test_every_builtin_cue_in_catalog_has_a_file():
             assert (bs.SFX_DIR / f"{entry['cue']}.mp3").exists(), entry["cue"]
 
 
+def test_contain_keeps_whole_square_product():
+    """정사각형 상품 사진의 좌우 끝이 잘리지 않아야 한다(cover였다면 잘려 나간다)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        src = tmp / "product.png"
+        image = Image.new("RGB", (1000, 1000), (255, 255, 255))
+        # 왼쪽 끝 10%를 빨강으로 칠한다. cover는 가운데만 남겨 이 띠를 잘라낸다.
+        for x in range(100):
+            for y in range(1000):
+                image.putpixel((x, y), (255, 0, 0))
+        image.save(src)
+        out = bs.fit_to_frame(src, tmp / "out.png", mode="contain")
+        with Image.open(out) as frame:
+            assert frame.size == (bs.VIDEO_WIDTH, bs.VIDEO_HEIGHT)
+            scale = min(bs.CONTAIN_MAX_WIDTH / 1000, bs.CONTAIN_MAX_HEIGHT / 1000)
+            left_edge = (bs.VIDEO_WIDTH - int(1000 * scale)) // 2 + 5
+            r, g, b = frame.getpixel((left_edge, bs.CONTAIN_CENTER_Y))
+            assert r > 200 and g < 60 and b < 60, (r, g, b)
+
+
+def test_default_fit_is_cover():
+    assert bs.image_fit({}, {}) == "cover"
+    assert bs.image_fit({"imageFit": "contain"}, {}) == "contain"
+    assert bs.image_fit({"imageFit": "contain"}, {"imageFit": "cover"}) == "cover"
+
+
+def test_review_card_fits_safe_width_and_caps_lines():
+    """긴 후기도 카드 폭 안에 들어가고, 세 줄을 넘지 않아 화면을 덮지 않는다."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        short = bs.render_review_card("재구매 세 번째예요", tmp / "a.png", 5)
+        long = bs.render_review_card("정말 좋아요 " * 40, tmp / "b.png", 4)
+        with Image.open(short) as a, Image.open(long) as b:
+            assert a.width == bs.REVIEW_CARD_WIDTH
+            assert b.width == bs.REVIEW_CARD_WIDTH
+            assert a.height < b.height
+            line = int(bs.REVIEW_TEXT_SIZE * 1.35)
+            max_height = (
+                bs.REVIEW_CARD_PADDING * 2
+                + int(bs.REVIEW_LABEL_SIZE * 1.6)
+                + line * bs.REVIEW_CARD_MAX_LINES
+            )
+            assert b.height <= max_height
+            # 가장 긴(세 줄) 카드도 상품 영역 위에서 끝나야 상품을 가리지 않는다.
+            product_top = bs.CONTAIN_CENTER_Y - bs.CONTAIN_MAX_HEIGHT // 2
+            assert bs.REVIEW_CARD_Y + b.height < product_top, (bs.REVIEW_CARD_Y + b.height, product_top)
+            # 카드는 좌우 세이프존(각 10%)을 넘지 않는다.
+            assert bs.REVIEW_CARD_WIDTH <= bs.VIDEO_WIDTH * 0.8
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
