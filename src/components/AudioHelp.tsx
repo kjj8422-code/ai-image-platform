@@ -16,7 +16,7 @@ const FREE_SOURCES = [
   {
     name: "FreePD",
     href: "https://freepd.com/",
-    note: "퍼블릭 도메인(CC0) · 지금 기본 음악 4곡의 출처",
+    note: "기존 기본 음악 4곡의 출처",
   },
   {
     name: "Mixkit",
@@ -58,8 +58,8 @@ export const AudioHelp = () => (
       ))}
     </ul>
     <p className="mt-2 text-zinc-500">
-      &ldquo;직접 넣는 음악&rdquo; 칸이 아직 비어 있으면 가장 비슷한 기본 음악이 대신
-      나와요(예: 공포 → 미스터리). 사이트마다 약관이 바뀔 수 있으니, 크몽 납품처럼
+      공포·슬픔·여행·로파이 등 기본 음악은 파일을 따로 넣지 않아도 바로 쓸 수 있어요.
+      &ldquo;내 음악&rdquo; 칸이 비어 있으면 기본 음악이 대신 나와요. 사이트마다 약관이 바뀔 수 있으니, 크몽 납품처럼
       돈 받고 파는 영상에는 받을 때 &ldquo;상업적 이용 가능&rdquo;인지 한 번 확인해 주세요.
     </p>
   </details>

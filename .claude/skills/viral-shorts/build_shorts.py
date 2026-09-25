@@ -35,6 +35,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from audio_mix import BED_CUES, apply_bed_envelope, bed_gain, cue_window
 
 # 회사 프록시가 자체 서명 인증서로 TLS를 가로채기 때문에, 파이썬 기본 인증서 번들만
 # 쓰면 API/TTS 호출이 전부 CERTIFICATE_VERIFY_FAILED로 막힌다. 검증을 끄는 대신
@@ -967,7 +968,7 @@ def build_audio(
     bgm_mood: str,
     narration_path: Path,
 ):
-    """나레이션 + 장면별 SFX + 루프 BGM(-15dB)을 한 트랙으로 섞는다."""
+    """나레이션 + 장면별 SFX/환경음 + 음량 정규화·덕킹 BGM을 섞는다."""
     from moviepy import AudioFileClip, CompositeAudioClip, afx
 
     narration = AudioFileClip(str(narration_path))
@@ -1005,12 +1006,20 @@ def build_audio(
             sfx_path = find_sfx(cue)
             if sfx_path:
                 clip = AudioFileClip(str(sfx_path))
-                clip = clip.subclipped(
-                    0, sfx_length(clip.duration, scene["duration"])
-                ).with_effects([afx.AudioFadeOut(SFX_FADE_SECONDS)])
-                gain = sfx_gain(measure_rms(sfx_path))
+                offset, length = cue_window(scene, clip.duration)
+                if cue in BED_CUES:
+                    clip = clip.with_effects([afx.AudioLoop(duration=length)])
+                    # Envelope uses local time, while speech intervals use scene time.
+                    clip = apply_bed_envelope(clip, [{**scene, "start": 0}], length)
+                    gain = bed_gain(measure_rms(sfx_path), target=.025)
+                else:
+                    clip = clip.subclipped(0, length).with_effects([
+                        afx.AudioFadeIn(.01),
+                        afx.AudioFadeOut(min(SFX_FADE_SECONDS, length/2)),
+                    ])
+                    gain = sfx_gain(measure_rms(sfx_path))
                 tracks.append(
-                    clip.with_volume_scaled(gain).with_start(scene["start"])
+                    clip.with_volume_scaled(gain).with_start(scene["start"] + offset)
                 )
             else:
                 print(f"    (효과음 없음: {cue}.mp3 — 건너뜀. 음원넣기.bat으로 채울 수 있어요)")
@@ -1022,7 +1031,8 @@ def build_audio(
         bgm = AudioFileClip(str(bgm_path)).with_effects(
             [afx.AudioLoop(duration=total_duration)]
         )
-        tracks.append(bgm.with_volume_scaled(BGM_GAIN).with_start(0))
+        bgm = bgm.with_volume_scaled(bed_gain(measure_rms(bgm_path)))
+        tracks.append(apply_bed_envelope(bgm, scenes, total_duration).with_start(0))
     else:
         print(f"    (BGM 없음: {bgm_mood}.mp3 — 건너뜀)")
 
@@ -1093,7 +1103,8 @@ def format_timeline(scenes: list[dict]) -> str:
     for scene in scenes:
         stamp = f"[{int(scene['start']) // 60:02d}:{int(scene['start']) % 60:02d}]"
         cue = scene.get("sfx", "none")
-        sfx_note = "효과음 없음" if cue == "none" else f"SFX: {cue}"
+        position = "장면 전체" if cue in BED_CUES else scene.get("sfxTiming", "start")
+        sfx_note = "효과음 없음" if cue == "none" else f"SFX: {cue} ({position})"
         lines.append(f"{stamp} 장면{scene['index']} · {sfx_note} · {scene['narration']}")
     return "\n".join(lines)
 

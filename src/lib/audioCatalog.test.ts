@@ -53,7 +53,7 @@ test("직접 넣는 음악은 전부 파일이 있는 기본 음악으로 물러
 test("사람만 고르는 칸(내 효과음 등)은 AI 목록에 없다", () => {
   assert.ok(!(AI_SFX_CUES as readonly string[]).includes("my1"));
   assert.ok(!(AI_BGM_MOODS as readonly string[]).includes("my1"));
-  assert.ok(!(AI_BGM_MOODS as readonly string[]).includes("horror"));
+  assert.ok((AI_BGM_MOODS as readonly string[]).includes("horror"));
 });
 
 test("미리듣기는 목록에 있는 이름만 파일로 바꾼다 (경로 조작 차단)", () => {
@@ -69,7 +69,8 @@ test("효과음 미리듣기: 기본 소리는 되고, 빈 칸·없음은 안 �
 });
 
 test("배경음악 미리듣기: 빈 칸은 대신 나올 기본 곡을 들려준다", () => {
-  assert.deepEqual(resolvePreviewFile("bgm", "horror"), { kind: "bgm", name: "mystery", isStandIn: true });
+  assert.deepEqual(resolvePreviewFile("bgm", "my1"), { kind: "bgm", name: "playful", isStandIn: true });
+  assert.deepEqual(resolvePreviewFile("bgm", "horror"), { kind: "bgm", name: "horror", isStandIn: false });
   assert.deepEqual(resolvePreviewFile("bgm", "epic"), { kind: "bgm", name: "epic", isStandIn: false });
 });
 

@@ -1,4 +1,5 @@
 import type Replicate from "replicate";
+import { AUDIO_DIRECTION, directGeneratedAudio, type SfxTiming } from "./audioDirection.ts";
 import { withRetryOn429 } from "./replicateHelpers.ts";
 import {
   AI_BGM_MOODS,
@@ -27,6 +28,7 @@ export type StoryboardScene = {
   imagePrompt: string;
   midjourneyPrompt: string;
   sfx: SfxCue;
+  sfxTiming?: SfxTiming;
   kenBurns: "in" | "out";
 };
 
@@ -102,7 +104,8 @@ Rules for "imagePrompt" (English, one per scene):
 - Make the single most concrete visual of that scene unmistakable. If something magical or impossible is happening, the image must literally show it happening, not merely hint at it.
 - Ground it in real Jeju scenery (한라산, 백록담, 성산일출봉, 주상절리, 돌하르방, 검은 현무암 해변, 유채꽈밭, 감귤밭, 해녀, 오름) where it fits the story.
 
-Rules for "sfx": pick exactly one cue name per scene from this fixed list (name, then what it sounds like) — ${aiSfxMenu()}. Use "none" when silence serves the scene better. Scene 1 should usually be "boom" or "suspense", and the twist scene should usually be "reveal" or "laugh".
+Rules for "sfx": pick exactly one cue name per scene from this fixed list — ${aiSfxMenu()}. Use "none" when silence serves the scene better.
+${AUDIO_DIRECTION}
 
 Rules for "kenBurns": "in" (slow zoom in, for tension/focus) or "out" (slow zoom out, for reveals/scale). Alternate so consecutive scenes don't feel identical.
 
@@ -112,7 +115,7 @@ Also produce:
 - "bgmMood": exactly one of ${aiBgmMenu()} (write only the name).
 
 Respond with ONLY a compact JSON object in exactly this shape, no markdown fences, no explanation:
-{"thumbnailCopy":"...","propSheet":"...","bgmMood":"...","scenes":[{"index":1,"narration":"...","imagePrompt":"...","sfx":"...","kenBurns":"in"}, ... ${SCENE_COUNT} scenes total]}
+{"thumbnailCopy":"...","propSheet":"...","bgmMood":"...","scenes":[{"index":1,"narration":"...","imagePrompt":"...","sfx":"...","sfxTiming":"start","kenBurns":"in"}, ... ${SCENE_COUNT} scenes total]}
 
 The character description that will be appended to every scene (do not repeat it yourself): ${character}`;
 
@@ -136,6 +139,7 @@ type RawScene = {
   narration?: unknown;
   imagePrompt?: unknown;
   sfx?: unknown;
+  sfxTiming?: unknown;
   kenBurns?: unknown;
 };
 
@@ -202,6 +206,7 @@ const parseStoryboard = (
       narration,
       ...buildScenePrompts(scenePrompt, character, propSheet),
       sfx: isSfxCue(rawScene.sfx) ? rawScene.sfx : "none",
+      sfxTiming: rawScene.sfxTiming === "middle" || rawScene.sfxTiming === "end" ? rawScene.sfxTiming : "start",
       kenBurns: rawScene.kenBurns === "out" ? "out" : "in",
     });
   }
@@ -215,7 +220,7 @@ const parseStoryboard = (
     thumbnailCopy,
     bgmMood: isBgmMood(parsed.bgmMood) ? parsed.bgmMood : "mystery",
     character,
-    scenes,
+    scenes: directGeneratedAudio(scenes),
   };
 };
 
