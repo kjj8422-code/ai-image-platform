@@ -32,6 +32,22 @@ export const SFX_LIBRARY = [
   "message",
   "splash",
   "click",
+  "shutter",
+  "typing",
+  "heartbeat",
+  "ticking",
+  "riser",
+  "downer",
+  "swipe",
+  "soft_whoosh",
+  "success",
+  "glimmer",
+  "rain",
+  "wind",
+  "waves",
+  "birds",
+  "fire",
+  "night",
   "my1",
   "my2",
   "my3",
@@ -51,16 +67,25 @@ export const BGM_MOODS = [
   "chill",
   "action",
   "retro",
+  "warm",
+  "romantic",
+  "travel",
+  "documentary",
+  "inspiring",
+  "comedy",
   "my1",
   "my2",
 ] as const;
 
 export type BgmMood = (typeof BGM_MOODS)[number];
 
-type SfxEntry = { cue: string; group: string; label: string; hint?: string };
+type SfxEntry = { cue: string; group: string; label: string; hint?: string; playback?: "bed" };
 type BgmEntry = { mood: string; family: string; group: string; label: string; hint?: string };
 
-export const SFX_ENTRIES: readonly SfxEntry[] = catalog.sfx;
+export const SFX_ENTRIES: readonly SfxEntry[] = catalog.sfx.map((entry) => ({
+  ...entry,
+  playback: entry.playback === "bed" ? "bed" : undefined,
+}));
 export const BGM_ENTRIES: readonly BgmEntry[] = catalog.bgm;
 
 const sfxByCue = new Map(SFX_ENTRIES.map((entry) => [entry.cue, entry]));
@@ -69,7 +94,7 @@ const bgmByMood = new Map(BGM_ENTRIES.map((entry) => [entry.mood, entry]));
 export const sfxLabel = (cue: string): string => sfxByCue.get(cue)?.label ?? cue;
 export const bgmLabel = (mood: string): string => bgmByMood.get(mood)?.label ?? mood;
 
-// <optgroup>으로 묶어 보여주기 위한 순서 유지 그룹핑. 28개를 한 줄로 늘어놓으면
+// <optgroup>으로 묶어 보여주기 위한 순서 유지 그룹핑. 소리를 한 줄로 늘어놓으면
 // 원하는 소리를 찾기 어렵다.
 const groupInOrder = <T extends { group: string }>(entries: readonly T[]) => {
   const groups: { group: string; items: T[] }[] = [];

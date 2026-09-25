@@ -253,6 +253,69 @@ def test_more_scenes_means_longer_video():
         assert total >= count * bs.MIN_SCENE_SECONDS - 1e-9
 
 
+def test_user_seconds_set_scene_length_but_never_cut_the_voice():
+    """웹에서 정한 초가 우선이다. 단, 대사보다 짧게 정하면 대사 길이를 지킨다."""
+    scenes = [
+        {"start": 0.0, "duration": 3.0, "seconds": 5.0},  # 늘리기
+        {"start": 3.0, "duration": 1.0, "seconds": 1.2},  # 최소 2.4초보다 짧게도 된다
+        {"start": 4.0, "duration": 2.8, "seconds": 1.0},  # 대사(2.8초)보다 짧게 → 2.8
+        {"start": 6.8, "duration": 1.0, "seconds": None},  # 자동 → 최소 시간
+    ]
+    assert bs.hold_short_scenes(scenes, 2.4) is True
+    assert [s["duration"] for s in scenes] == [5.0, 1.2, 2.8, 2.4]
+    assert [round(s["start"], 6) for s in scenes] == [0.0, 5.0, 6.2, 9.0]
+    assert scenes[2]["voice_start"] == 4.0, "목소리는 원래 구간에서 잘라 온다"
+
+
+def test_bad_seconds_values_fall_back_to_auto():
+    for bad in (0, -3, "5", True, float("nan"), float("inf")):
+        assert bs.wanted_seconds({"seconds": bad}) is None, bad
+    assert bs.wanted_seconds({"seconds": 99}) == bs.MAX_WANTED_SCENE_SECONDS
+
+
+def _fake_tts(text, voice, dest, rate, pitch):
+    """edge-tts 대신 띄어쓰기 단위로 글자 수에 비례한 단어 타이밍을 돌려준다."""
+    words, t = [], 0.1
+    for token in text.split():
+        duration = 0.16 * max(1, len(bs._ink(token)))
+        words.append({"text": token, "start": t, "duration": duration})
+        t += duration + 0.08
+    return words
+
+
+def _split_with_fake_tts(narrations):
+    original = bs.synthesize_narration
+    bs.synthesize_narration = _fake_tts
+    try:
+        return bs.synthesize_all_narrations(narrations, None)
+    finally:
+        bs.synthesize_narration = original
+
+
+def test_empty_last_narration_becomes_a_held_silent_scene():
+    """마지막 장면 나레이션이 비면 '빈 장면' 오류로 멈췄다. 말 없는 컷으로 보여줘야 한다."""
+    per = _split_with_fake_tts(["첫 줄 입니다", "둘째 줄", ""])
+    assert [len(w) for w in per] == [3, 2, 0], per
+    speech_end = per[1][-1]["start"] + per[1][-1]["duration"]
+    scenes = bs.voice_segments([{"index": i} for i in range(3)], per, speech_end)
+    assert scenes[2]["duration"] == 0.0 and scenes[2]["words"] == []
+    bs.hold_short_scenes(scenes)
+    assert scenes[2]["duration"] == bs.MIN_SCENE_SECONDS
+    assert scenes[2]["start"] >= scenes[1]["start"] + scenes[1]["duration"] - 1e-9
+
+
+def test_empty_middle_narration_does_not_steal_next_words():
+    """중간 빈 장면이 다음 장면 단어를 빼앗으면 자막과 그림이 한 칸씩 밀린다."""
+    per = _split_with_fake_tts(["갑자기 뭔가 나타났다", "이게 대체 뭐지", "", "해녀 할머니였어요"])
+    assert [len(w) for w in per] == [3, 3, 0, 2], per
+    assert per[3][0]["text"] == "해녀"
+    scenes = bs.voice_segments([{"index": i} for i in range(4)], per, 10.0)
+    # 장면 2의 목소리는 장면 4 첫 단어 직전까지 — 빈 장면이 끼어도 끊기지 않는다
+    assert abs(scenes[1]["start"] + scenes[1]["duration"] - per[3][0]["start"]) < 1e-9
+    bs.hold_short_scenes(scenes, 2.4)
+    assert scenes[2]["duration"] == 2.4, "말 없는 장면도 사진을 최소 시간은 보여준다"
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
