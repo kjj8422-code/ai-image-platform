@@ -75,6 +75,9 @@ const readJson = async <T,>(response: Response, fallback: string): Promise<T> =>
   }
 };
 
+// 썸네일을 만든 재료(문구 + 배경 사진). 이게 바뀌면 썸네일도 다시 만들어야 한다.
+const thumbnailKey = (title: string, backgroundUrl: string) => `${title}\n${backgroundUrl}`;
+
 export default function ShortsPage() {
   const { user, loading: userLoading } = useSupabaseUser();
 
@@ -89,6 +92,11 @@ export default function ShortsPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [storyboard, setStoryboard] = useState<Storyboard | null>(null);
   const [thumbnailUrl, setThumbnailUrl] = useState("");
+  // 지금 보이는 썸네일이 어떤 문구·사진으로 만들어졌는지. 편집한 내용과 다르면
+  // "다시 만들기" 버튼을 눈에 띄게 켠다.
+  const [thumbnailBuiltFrom, setThumbnailBuiltFrom] = useState("");
+  const [thumbnailBusy, setThumbnailBusy] = useState(false);
+  const [thumbnailError, setThumbnailError] = useState("");
   // 올린 순서 그대로의 저장소 주소. 장면이 어느 사진을 쓰는지 되짚고, 다른 사진으로
   // 바꿔 끼우는 데 쓴다.
   const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
@@ -229,23 +237,41 @@ export default function ShortsPage() {
     });
   };
 
-  // 썸네일은 첫 장면 사진으로 만든다. 첫 장면을 바꿨으면 다시 만들어야 맞는다.
+  // 썸네일은 첫 장면 사진으로 만든다. 문구나 첫 장면을 바꿨으면 다시 만들어야 맞는다.
+  // 서버에서 글자만 얹는 작업이라 AI 비용이 들지 않는다.
   const rebuildThumbnail = async () => {
-    if (!storyboard) return;
+    if (!storyboard || thumbnailBusy) return;
+    const title = storyboard.thumbnailCopy.trim();
+    if (!title) {
+      setThumbnailError("썸네일 문구를 먼저 적어 주세요.");
+      return;
+    }
+    const backgroundUrl = storyboard.scenes[0].imageUrl;
+    setThumbnailBusy(true);
+    setThumbnailError("");
     try {
       const response = await authedFetch("/api/thumbnail/compose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          backgroundUrl: storyboard.scenes[0].imageUrl,
-          title: storyboard.thumbnailCopy,
-        }),
+        body: JSON.stringify({ backgroundUrl, title }),
       });
-      if (!response.ok) return;
+      if (!response.ok) {
+        const result = await readJson<{ error?: string }>(
+          response,
+          "썸네일을 다시 만들지 못했어요.",
+        );
+        throw new Error(result.error ?? "썸네일을 다시 만들지 못했어요.");
+      }
       if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
       setThumbnailUrl(URL.createObjectURL(await response.blob()));
-    } catch {
+      setThumbnailBuiltFrom(thumbnailKey(title, backgroundUrl));
+    } catch (err) {
       // 썸네일은 곁다리라, 실패해도 대본과 영상 제작에는 지장이 없다.
+      setThumbnailError(
+        err instanceof Error ? err.message : "썸네일을 다시 만들지 못했어요.",
+      );
+    } finally {
+      setThumbnailBusy(false);
     }
   };
 
@@ -254,6 +280,8 @@ export default function ShortsPage() {
     setUploadedCount(0);
     setStoryboard(null);
     setThumbnailUrl("");
+    setThumbnailBuiltFrom("");
+    setThumbnailError("");
 
     try {
       setStep("uploading");
@@ -301,16 +329,16 @@ export default function ShortsPage() {
       setStoryboard(board);
 
       setStep("composing");
+      // 첫 장면 사진으로 만든다. 올린 순서의 첫 사진은 AI가 빼거나 뒤로 보냈을 수 있다.
+      const backgroundUrl = board.scenes[0]?.imageUrl ?? imageUrls[0];
       const composeResponse = await authedFetch("/api/thumbnail/compose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          backgroundUrl: imageUrls[0],
-          title: board.thumbnailCopy,
-        }),
+        body: JSON.stringify({ backgroundUrl, title: board.thumbnailCopy }),
       });
       if (composeResponse.ok) {
         setThumbnailUrl(URL.createObjectURL(await composeResponse.blob()));
+        setThumbnailBuiltFrom(thumbnailKey(board.thumbnailCopy.trim(), backgroundUrl));
       }
 
       setStep("done");
@@ -347,6 +375,11 @@ export default function ShortsPage() {
   }
 
   const busy = step === "uploading" || step === "analyzing" || step === "composing";
+  const thumbnailOutdated = Boolean(
+    storyboard &&
+      thumbnailKey(storyboard.thumbnailCopy.trim(), storyboard.scenes[0]?.imageUrl ?? "") !==
+        thumbnailBuiltFrom,
+  );
   const canGenerate = files.length >= MIN_IMAGES && !busy;
   const busyLabel =
     step === "uploading"
@@ -522,14 +555,58 @@ export default function ShortsPage() {
           </p>
 
           <div className="flex flex-col gap-4 sm:flex-row">
-            {thumbnailUrl && (
-              <div className="sm:w-40">
-                {/* eslint-disable-next-line @next/next/no-img-element -- blob objectURL */}
+            <div className="sm:w-44">
+              {thumbnailUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- blob objectURL
                 <img
                   src={thumbnailUrl}
                   alt="썸네일 미리보기"
-                  className="w-full rounded-xl border border-zinc-200 dark:border-zinc-800"
+                  className={`w-full rounded-xl border border-zinc-200 dark:border-zinc-800 ${
+                    thumbnailBusy ? "opacity-50" : ""
+                  }`}
                 />
+              ) : (
+                <div className="flex aspect-[9/16] w-full items-center justify-center rounded-xl border border-dashed border-zinc-300 text-xs text-zinc-400 dark:border-zinc-700">
+                  썸네일 없음
+                </div>
+              )}
+              <label className="mt-2 block text-xs text-zinc-500 dark:text-zinc-400">
+                썸네일 문구
+                <input
+                  value={storyboard.thumbnailCopy}
+                  onChange={(event) => changeThumbnailCopy(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                      event.preventDefault();
+                      void rebuildThumbnail();
+                    }
+                  }}
+                  maxLength={40}
+                  placeholder="예: 해녀가 물고기를 놔줬다고?"
+                  className="mt-1 block w-full rounded border border-zinc-300 bg-transparent px-2 py-1 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void rebuildThumbnail()}
+                disabled={thumbnailBusy}
+                className={`mt-2 block w-full rounded-full px-3 py-1.5 text-center text-xs font-semibold disabled:opacity-50 ${
+                  thumbnailOutdated
+                    ? "bg-black text-white hover:bg-zinc-800 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+                    : "border border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+                }`}
+              >
+                {thumbnailBusy ? "만드는 중..." : "썸네일 다시 만들기"}
+              </button>
+              {thumbnailOutdated && !thumbnailBusy && (
+                <p className="mt-1 text-center text-[11px] text-amber-600 dark:text-amber-400">
+                  문구나 첫 장면이 바뀌었어요. 다시 만들어야 반영돼요.
+                </p>
+              )}
+              {thumbnailError && (
+                <p className="mt-1 text-center text-[11px] text-red-600">{thumbnailError}</p>
+              )}
+              {thumbnailUrl && (
                 <a
                   href={thumbnailUrl}
                   download="thumbnail.png"
@@ -537,25 +614,10 @@ export default function ShortsPage() {
                 >
                   썸네일 저장
                 </a>
-                <button
-                  type="button"
-                  onClick={rebuildThumbnail}
-                  className="mt-1 block w-full rounded-full px-3 py-1 text-center text-xs text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
-                >
-                  문구·첫 장면 바꿨으면 다시 만들기
-                </button>
-              </div>
-            )}
+              )}
+            </div>
 
             <div className="flex-1">
-              <div className="mb-2 flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                <span className="shrink-0">썸네일 문구</span>
-                <input
-                  value={storyboard.thumbnailCopy}
-                  onChange={(event) => changeThumbnailCopy(event.target.value)}
-                  className="min-w-0 flex-1 rounded border border-zinc-300 bg-transparent px-2 py-1 font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
-                />
-              </div>
               <div className="mb-2 flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
                 <span className="shrink-0">배경음악</span>
                 <select
