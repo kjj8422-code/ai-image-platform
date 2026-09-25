@@ -112,6 +112,8 @@ SCENE_TAIL_PADDING = 0.08
 # 넘어간다(장면 수를 늘릴수록 심해진다). 대사가 짧으면 사진을 이만큼은 보여주고,
 # 다음 대사를 그만큼 늦게 시작한다 — 짧은 한마디 뒤의 "한 박자 쉼"이 된다.
 MIN_SCENE_SECONDS = 2.4
+# 웹에서 장면 길이를 직접 정할 때 받아주는 최대값(웹 화면의 SCENE_SECONDS_MAX와 같다).
+MAX_WANTED_SCENE_SECONDS = 15.0
 # 목소리를 잘라 사이를 띄울 때 이음매에서 "틱" 소리가 나지 않게 살짝 줄인다.
 NARRATION_SEAM_FADE = 0.03
 # 쇼츠 나레이션은 일상 대화보다 조금 빨라야 넘기지 않는다.
@@ -422,7 +424,14 @@ def synthesize_all_narrations(
     이어져 한 사람이 쭉 말하는 것처럼 들린다.
     """
     style = style or DEFAULT_VOICE_STYLE
-    joined = _join_narrations(narrations)
+    # 나레이션이 빈 장면(그림·효과음만 보여주는 컷)은 읽을 게 없으니 빼고 읽힌다.
+    # 넣은 채로 글자 수를 맞추면 빈 장면 몫이 0이라 단어가 하나도 배정되지 않거나
+    # (마지막 장면이면 "빈 장면" 오류로 멈춘다), 다음 장면 단어를 빼앗아 경계가 밀린다.
+    voiced = [i for i, n in enumerate(narrations) if _ink(n)]
+    if not voiced:
+        raise RuntimeError("나레이션이 있는 장면이 하나도 없습니다. 대본을 확인해주세요.")
+    spoken = [narrations[i] for i in voiced]
+    joined = _join_narrations(spoken)
     try:
         words = synthesize_narration(
             joined, style["voice"], dest, style["rate"], style["pitch"]
@@ -438,18 +447,22 @@ def synthesize_all_narrations(
 
     # edge-tts가 단어를 어떻게 쪼개 돌려주든, 읽히는 글자 수를 세어 맞추면
     # 장면 경계가 어긋나지 않는다(토큰 개수로 맞추면 구두점 때문에 밀린다).
-    targets = [len(_ink(n)) for n in narrations]
-    per_scene: list[list[dict]] = [[] for _ in narrations]
+    targets = [len(_ink(n)) for n in spoken]
+    per_spoken: list[list[dict]] = [[] for _ in spoken]
     index = 0
     filled = 0
     for word in words:
-        if index < len(narrations) - 1 and filled >= targets[index]:
+        if index < len(spoken) - 1 and filled >= targets[index]:
             index += 1
             filled = 0
-        per_scene[index].append(word)
+        per_spoken[index].append(word)
         filled += len(_ink(word["text"]))
 
-    empty = [i + 1 for i, chunk in enumerate(per_scene) if not chunk]
+    per_scene: list[list[dict]] = [[] for _ in narrations]
+    for slot, scene_index in enumerate(voiced):
+        per_scene[scene_index] = per_spoken[slot]
+
+    empty = [voiced[i] + 1 for i, chunk in enumerate(per_spoken) if not chunk]
     if empty:
         raise RuntimeError(
             f"나레이션을 장면별로 나누지 못했습니다(빈 장면: {empty}). "
@@ -907,21 +920,78 @@ def measure_rms(path: Path) -> float:
     return float(np.sqrt((frames**2).mean()))
 
 
+def voice_segments(
+    raw_scenes: list[dict],
+    per_scene_words: list[list[dict]],
+    narration_duration: float,
+) -> list[dict]:
+    """장면마다 통째로 읽힌 나레이션에서 자기 목소리 구간(start, duration)을 찾는다.
+
+    말하는 장면의 경계는 그 장면 첫 단어가 발음되는 시점이다(첫 말하는 장면만 0).
+    이렇게 잡으면 그림이 바뀌는 순간과 말이 넘어가는 순간이 정확히 맞는다.
+    나레이션이 빈 장면은 목소리 구간이 0초이고, 바로 앞 목소리가 끝난 자리에 놓인다.
+    """
+    voiced = [i for i, words in enumerate(per_scene_words) if words]
+    bounds: dict[int, tuple[float, float]] = {}
+    for position, i in enumerate(voiced):
+        start = 0.0 if position == 0 else per_scene_words[i][0]["start"]
+        if position + 1 < len(voiced):
+            end = per_scene_words[voiced[position + 1]][0]["start"]
+        else:
+            end = narration_duration + SCENE_TAIL_PADDING
+        bounds[i] = (start, max(end - start, 0.4))
+
+    scenes: list[dict] = []
+    cursor = 0.0
+    for i, (raw_scene, words) in enumerate(zip(raw_scenes, per_scene_words)):
+        start, duration = bounds.get(i, (cursor, 0.0))
+        cursor = start + duration
+        scenes.append(
+            {
+                **raw_scene,
+                # 자막은 장면 클립 안에서 그려지므로 장면 기준 시각으로 바꿔 둔다.
+                "words": [{**w, "start": max(w["start"] - start, 0.0)} for w in words],
+                "duration": duration,
+                "start": start,
+            }
+        )
+    return scenes
+
+
+def wanted_seconds(scene: dict) -> float | None:
+    """웹에서 사용자가 직접 정한 장면 길이(초). 없거나 이상한 값이면 None(자동)."""
+    value = scene.get("seconds")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    return min(float(value), MAX_WANTED_SCENE_SECONDS)
+
+
 def hold_short_scenes(scenes: list[dict], min_seconds: float = MIN_SCENE_SECONDS) -> bool:
-    """대사가 짧은 장면을 min_seconds까지 늘리고, 뒤 장면들을 그만큼 뒤로 민다.
+    """장면 길이를 정하고, 늘어난 만큼 뒤 장면들을 뒤로 민다.
+
+    사용자가 초를 정한 장면(scene["seconds"])은 그 길이로, 아니면 대사가 짧은
+    장면만 min_seconds까지 늘린다. 어느 쪽이든 대사를 읽는 시간보다 짧게는 못
+    자른다 — 자르면 다음 장면 그림 위로 말이 넘어간다.
 
     각 장면에 원래 목소리 구간(voice_start, voice_duration)을 남겨 둔다 — 합성할 때
-    목소리를 그 구간대로 잘라 새 시작 시각에 붙인다. 늘어난 장면이 하나라도 있으면
-    True를 돌려준다(없으면 목소리를 자르지 않고 예전처럼 한 덩어리로 쓴다).
+    목소리를 그 구간대로 잘라 새 시작 시각에 붙인다. 길이가 바뀐 장면이 하나라도
+    있으면 True를 돌려준다(없으면 목소리를 자르지 않고 예전처럼 한 덩어리로 쓴다).
     """
     cursor = 0.0
     changed = False
     for scene in scenes:
         scene["voice_start"] = scene["start"]
         scene["voice_duration"] = scene["duration"]
-        if scene["duration"] < min_seconds:
-            scene["duration"] = min_seconds
+        wanted = wanted_seconds(scene)
+        if wanted is not None:
+            target = max(wanted, scene["duration"])
+        else:
+            target = max(scene["duration"], min_seconds)
+        if abs(target - scene["duration"]) > 0.001:
             changed = True
+        scene["duration"] = target
         scene["start"] = cursor
         cursor += scene["duration"]
     return changed
@@ -1266,29 +1336,28 @@ def main() -> None:
 
     # 장면 경계는 그 장면의 첫 단어가 발음되기 시작하는 시점이다. 이렇게 잡으면
     # 그림이 바뀌는 순간과 말이 넘어가는 순간이 정확히 맞는다. 첫 장면만 0에서 연다.
-    scenes: list[dict] = []
-    for i, (raw_scene, words) in enumerate(zip(prepared, per_scene_words)):
-        scene_start = 0.0 if i == 0 else words[0]["start"]
-        if i + 1 < len(per_scene_words):
-            scene_end = per_scene_words[i + 1][0]["start"]
-        else:
-            scene_end = narration_duration + SCENE_TAIL_PADDING
-
-        scenes.append(
-            {
-                **raw_scene,
-                # 자막은 장면 클립 안에서 그려지므로 장면 기준 시각으로 바꿔 둔다.
-                "words": [
-                    {**w, "start": max(w["start"] - scene_start, 0.0)} for w in words
-                ],
-                "duration": max(scene_end - scene_start, 0.4),
-                "start": scene_start,
-            }
-        )
+    # 나레이션이 빈 장면은 목소리 구간이 0초다 — 바로 앞 목소리가 끝난 자리에 놓이고,
+    # 화면에 떠 있는 시간은 아래 hold_short_scenes가 정한다.
+    scenes = voice_segments(prepared, per_scene_words, narration_duration)
 
     if hold_short_scenes(scenes):
-        held = [s["index"] for s in scenes if s["duration"] > s["voice_duration"] + 0.01]
-        print(f"   (대사가 짧은 장면 {held}은 사진을 {MIN_SCENE_SECONDS}초까지 보여줍니다)")
+        for s in scenes:
+            wanted = wanted_seconds(s)
+            if wanted is not None and wanted + 0.01 < s["voice_duration"]:
+                print(
+                    f"   (장면 {s['index']}: {wanted:.1f}초로 정했지만 대사가 "
+                    f"{s['voice_duration']:.1f}초라 대사 길이에 맞춥니다)"
+                )
+        held = [
+            s["index"]
+            for s in scenes
+            if wanted_seconds(s) is None and s["duration"] > s["voice_duration"] + 0.01
+        ]
+        custom = [s["index"] for s in scenes if wanted_seconds(s) is not None]
+        if held:
+            print(f"   (대사가 짧은 장면 {held}은 사진을 {MIN_SCENE_SECONDS}초까지 보여줍니다)")
+        if custom:
+            print(f"   (장면 {custom}은 웹에서 정한 길이로 보여줍니다)")
     cursor = scenes[-1]["start"] + scenes[-1]["duration"]
 
     total = math.ceil(cursor)

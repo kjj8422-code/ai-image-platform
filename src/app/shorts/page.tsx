@@ -17,6 +17,8 @@ type Scene = {
   sfx: string;
   kenBurns: "in" | "out";
   imageUrl: string;
+  // 사용자가 직접 정한 장면 길이(초). 비어 있으면 PC 합성기가 대사 길이로 정한다.
+  seconds?: number | null;
 };
 
 type Storyboard = {
@@ -29,13 +31,20 @@ type Storyboard = {
 // 장면 수 고르기의 최소값. 서버(shortsFromImages.ts의 MIN_SCENES)와 같아야 한다 —
 // 그 파일은 AI SDK를 불러와서 화면 코드에서 직접 import하지 않는다.
 const PICKABLE_MIN_SCENES = 5;
-// 장면당 시간(초). PC 합성기는 대사가 짧아도 장면을 최소 2.4초 보여주고(build_shorts.py
-// MIN_SCENE_SECONDS), 음성은 공백·부호 빼고 초당 약 7자를 읽는다.
+// 장면당 시간(초). PC 합성기는 대사가 짧아도 장면을 최소 2.4초 보여준다(build_shorts.py
+// MIN_SCENE_SECONDS).
 const SCENE_MIN_SECONDS = 2.4;
 // 장면당 목표 시간(shortsFromImages.ts의 SCENE_TARGET_*와 같아야 한다).
 const SCENE_TARGET_MIN_SECONDS = 3.0;
 const SCENE_TARGET_MAX_SECONDS = 4.2;
-const TTS_CHARS_PER_SECOND = 7;
+// 대사 읽는 시간 어림값. 실제 edge-tts 합성 결과(해녀 대본 6장면)에 맞춘 값으로,
+// 공백·부호 뺀 글자를 초당 약 4.5자 읽고, 쉼표·느낌표·물음표·말줄임 묶음마다 0.35초
+// 쉰다. 글자 수만 세던 예전 어림(초당 7자)은 장면마다 1~2초씩 짧게 나왔다.
+const VOICE_CHARS_PER_SECOND = 4.5;
+const VOICE_PAUSE_SECONDS = 0.35;
+// 장면 길이를 직접 정할 때 받는 범위. 쇼츠 한 장면이 15초를 넘으면 넘겨버린다.
+const SCENE_SECONDS_MIN = 0.5;
+const SCENE_SECONDS_MAX = 15;
 
 const MIN_IMAGES = 5;
 const MAX_IMAGES = 15;
@@ -174,6 +183,41 @@ export default function ShortsPage() {
               i === sceneIndex ? { ...scene, narration: text } : scene,
             ),
           }
+        : prev,
+    );
+  };
+
+  // 장면 길이 예상. PC 합성기(build_shorts.py)와 같은 규칙이다 — 대사를 읽는 시간보다
+  // 짧게는 못 자르고, 직접 정하지 않은 장면은 최소 SCENE_MIN_SECONDS를 보여준다.
+  // 목소리 속도는 배경음악 분위기마다 조금씩 달라서 실제 영상과 장면당 0.5초쯤 어긋날
+  // 수 있다. 정확한 길이는 PC에서 뽑을 때 timeline.txt에 나온다.
+  const voiceSeconds = (scene: Scene) =>
+    inkLength(scene.narration) === 0
+      ? 0
+      : inkLength(scene.narration) / VOICE_CHARS_PER_SECOND +
+        (scene.narration.match(/[,.!?…~]+/g)?.length ?? 0) * VOICE_PAUSE_SECONDS;
+  const sceneSeconds = (scene: Scene) =>
+    scene.seconds
+      ? Math.max(scene.seconds, voiceSeconds(scene))
+      : Math.max(voiceSeconds(scene), SCENE_MIN_SECONDS);
+
+  const changeSeconds = (sceneIndex: number, seconds: number | null) => {
+    setStoryboard((prev) =>
+      prev
+        ? {
+            ...prev,
+            scenes: prev.scenes.map((scene, i) =>
+              i === sceneIndex ? { ...scene, seconds } : scene,
+            ),
+          }
+        : prev,
+    );
+  };
+
+  const resetAllSeconds = () => {
+    setStoryboard((prev) =>
+      prev
+        ? { ...prev, scenes: prev.scenes.map((scene) => ({ ...scene, seconds: null })) }
         : prev,
     );
   };
@@ -504,16 +548,7 @@ export default function ShortsPage() {
           <p className="-mt-3 text-xs text-zinc-500 dark:text-zinc-400">
             {/* 줄바꿈을 넣으면 JSX가 그 사이 공백을 지워서 "골라6개"로 붙는다 */}
             올린 {files.length}장 중 {storyboard.scenes.length}장을 골라{" "}
-            {storyboard.scenes.length}개 장면으로 만들었어요. 예상 길이 약{" "}
-            {Math.round(
-              storyboard.scenes.reduce(
-                (sum, scene) =>
-                  sum +
-                  Math.max(inkLength(scene.narration) / TTS_CHARS_PER_SECOND, SCENE_MIN_SECONDS),
-                0,
-              ),
-            )}
-            초(대사가 짧은 장면은 사진이 {SCENE_MIN_SECONDS}초 머물러요).
+            {storyboard.scenes.length}개 장면으로 만들었어요.
             {storyboard.requestedSceneCount &&
             storyboard.scenes.length < storyboard.requestedSceneCount
               ? ` 요청한 ${storyboard.requestedSceneCount}장면 중 ${storyboard.scenes.length}장면만 쓸 수 있었어요(AI가 같은 사진을 두 번 고른 장면은 뺐어요). 다시 생성하면 맞춰질 수 있어요.`
@@ -575,9 +610,35 @@ export default function ShortsPage() {
                 </select>
                 <AudioPreviewButton kind="bgm" name={storyboard.bgmMood} />
               </div>
+              <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
+                <span>
+                  ⏱ 영상 총 길이{" "}
+                  <b className="text-sm text-zinc-900 dark:text-white">
+                    약 {storyboard.scenes.reduce((sum, s) => sum + sceneSeconds(s), 0).toFixed(1)}초
+                  </b>
+                </span>
+                <span className="text-zinc-400">
+                  (장면별 초는 아래에서 바꿀 수 있어요. 비워두면 대사 길이에 맞춰 자동, 최소{" "}
+                  {SCENE_MIN_SECONDS}초)
+                </span>
+                {storyboard.scenes.some((s) => s.seconds) && (
+                  <button
+                    type="button"
+                    onClick={resetAllSeconds}
+                    className="ml-auto rounded px-1.5 py-0.5 text-zinc-500 underline hover:text-zinc-800 dark:hover:text-zinc-100"
+                  >
+                    모두 자동으로
+                  </button>
+                )}
+              </div>
               <ol className="flex flex-col gap-2">
                 {storyboard.scenes.map((scene, sceneIndex) => {
                   const photoNumber = photoNumberOf(scene.imageUrl);
+                  const startAt = storyboard.scenes
+                    .slice(0, sceneIndex)
+                    .reduce((sum, s) => sum + sceneSeconds(s), 0);
+                  const length = sceneSeconds(scene);
+                  const voice = voiceSeconds(scene);
                   return (
                     <li
                       key={scene.index}
@@ -629,6 +690,61 @@ export default function ShortsPage() {
                           {inkLength(scene.narration) > 25 && " · 25자 넘으면 길어요"}
                           {inkLength(scene.narration) <= 8 && " · 짧게 툭 (좋아요)"}
                         </span>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+                          <span>
+                            ⏱ {startAt.toFixed(1)}~{(startAt + length).toFixed(1)}초 ·{" "}
+                            <b className="text-zinc-800 dark:text-zinc-200">{length.toFixed(1)}초</b>
+                          </span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            min={SCENE_SECONDS_MIN}
+                            max={SCENE_SECONDS_MAX}
+                            step={0.1}
+                            placeholder="자동"
+                            aria-label={`장면 ${sceneIndex + 1} 길이(초)`}
+                            // 치는 도중("0.")에 값을 고치면 입력이 튀므로, 칸을 벗어나거나
+                            // Enter를 누를 때 반영한다. 값이 바뀌면 key로 칸을 새로 그린다.
+                            key={`${scene.index}-${scene.seconds ?? "auto"}`}
+                            defaultValue={scene.seconds ?? ""}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") event.currentTarget.blur();
+                            }}
+                            onBlur={(event) => {
+                              const raw = event.target.value.trim();
+                              const value = Number(raw);
+                              if (raw === "" || !Number.isFinite(value) || value <= 0) {
+                                return changeSeconds(sceneIndex, null);
+                              }
+                              changeSeconds(
+                                sceneIndex,
+                                Math.min(Math.max(value, SCENE_SECONDS_MIN), SCENE_SECONDS_MAX),
+                              );
+                            }}
+                            className="w-16 rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
+                          />
+                          <span>초로 정하기</span>
+                          {scene.seconds ? (
+                            <button
+                              type="button"
+                              onClick={() => changeSeconds(sceneIndex, null)}
+                              className="rounded px-1 text-zinc-400 underline hover:text-zinc-700 dark:hover:text-zinc-200"
+                            >
+                              자동
+                            </button>
+                          ) : (
+                            <span className="text-zinc-400">
+                              {voice < SCENE_MIN_SECONDS
+                                ? `(대사 약 ${voice.toFixed(1)}초 → 사진 ${SCENE_MIN_SECONDS}초 유지)`
+                                : "(대사 길이에 맞춤)"}
+                            </span>
+                          )}
+                          {scene.seconds && scene.seconds < voice && (
+                            <span className="text-amber-600 dark:text-amber-500">
+                              대사가 약 {voice.toFixed(1)}초라 그보다 짧게는 못 해요
+                            </span>
+                          )}
+                        </div>
                         <div className="mt-1 flex flex-wrap gap-1.5">
                           <select
                             value={photoNumber}
