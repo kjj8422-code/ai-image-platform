@@ -9,7 +9,10 @@ import {
   resolveSceneCount,
 } from "@/lib/shortsFromImages";
 
-export const maxDuration = 60;
+// 사진 10장 이상에 장면을 8~9개로 고르면 AI가 대본을 쓰는 데 1분을 넘길 수 있다.
+// 60초로 두면 다 써 가던 대본이 중간에 끊겨 아무것도 못 받는다(돈은 이미 나감).
+// Vercel Fluid compute 기준 무료 플랜 최대치가 300초다.
+export const maxDuration = 300;
 
 // 업로드된 이미지 5~10장을 Claude가 직접 보고 B급 썰체 시나리오를 만든다.
 export async function POST(request: NextRequest) {

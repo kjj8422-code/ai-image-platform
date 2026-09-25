@@ -169,7 +169,7 @@ export const generateProductScript = async (input: ProductInput): Promise<Produc
     ],
     output_config: {
       format: zodOutputFormat(ProductScriptSchema),
-      // Vercel 60초 안에 끝나야 한다(shortsFromImages와 같은 이유).
+      // 제한 시간 안에 여유 있게 끝내려고 medium으로 둔다(shortsFromImages와 같은 이유).
       effort: "medium",
     },
   });

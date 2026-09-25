@@ -322,7 +322,7 @@ export default function ProductShortsPage() {
           {step === "uploading"
             ? `사진 올리는 중... (${uploaded}/${files.length})`
             : step === "writing"
-              ? "AI가 후기 읽고 대본 쓰는 중... (30초 정도)"
+              ? "AI가 후기 읽고 대본 쓰는 중... (1~2분, 창을 닫지 마세요)"
               : "대본 만들기"}
         </button>
         <p className="-mt-2 text-xs text-zinc-400">누를 때마다 AI(Claude)를 1번 호출해요 — 소액의 API 비용이 나가요.</p>
