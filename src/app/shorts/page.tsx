@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import { downscaleToDataUrl } from "@/lib/downscaleImage";
 import { BGM_GROUPS, SFX_GROUPS } from "@/lib/audioCatalog";
+import { isAudioBed, type SfxTiming } from "@/lib/audioDirection";
 import { AudioHelp } from "@/components/AudioHelp";
 import { AudioPreviewButton } from "@/components/AudioPreviewButton";
 
@@ -15,6 +16,7 @@ type Scene = {
   index: number;
   narration: string;
   sfx: string;
+  sfxTiming?: SfxTiming;
   kenBurns: "in" | "out";
   imageUrl: string;
   // 사용자가 직접 정한 장면 길이(초). 비어 있으면 PC 합성기가 대사 길이로 정한다.
@@ -241,6 +243,13 @@ export default function ShortsPage() {
 
   const changeBgmMood = (mood: string) => {
     setStoryboard((prev) => (prev ? { ...prev, bgmMood: mood } : prev));
+  };
+
+  const changeSfxTiming = (sceneIndex: number, sfxTiming: SfxTiming) => {
+    setStoryboard((prev) => prev ? {
+      ...prev,
+      scenes: prev.scenes.map((scene, i) => i === sceneIndex ? { ...scene, sfxTiming } : scene),
+    } : prev);
   };
 
   // 장면을 뺀다. scene.index는 손대지 않는다 — 그 번호가 PC에서 내려받는 이미지
@@ -594,6 +603,7 @@ export default function ShortsPage() {
               <div className="mb-2 flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
                 <span className="shrink-0">배경음악</span>
                 <select
+                  aria-label="배경음악 선택"
                   value={storyboard.bgmMood}
                   onChange={(event) => changeBgmMood(event.target.value)}
                   className="min-w-0 flex-1 rounded border border-zinc-300 bg-transparent px-2 py-1 text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
@@ -610,6 +620,10 @@ export default function ShortsPage() {
                 </select>
                 <AudioPreviewButton kind="bgm" name={storyboard.bgmMood} />
               </div>
+              <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+                기본 BGM 16곡 · 효과음·환경음 40개. AI가 사진과 대사에 맞춰 소리와 재생 위치를 추천해요.
+                내레이션 중에는 배경음이 낮아지고, 환경음은 장면 전체에 깔립니다.
+              </p>
               <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">
                 <span>
                   ⏱ 영상 총 길이{" "}
@@ -761,6 +775,7 @@ export default function ShortsPage() {
                             ))}
                           </select>
                           <select
+                            aria-label={`장면 ${sceneIndex + 1} 효과음`}
                             value={scene.sfx}
                             onChange={(event) =>
                               changeSfx(sceneIndex, event.target.value)
@@ -778,6 +793,20 @@ export default function ShortsPage() {
                             ))}
                           </select>
                           <AudioPreviewButton kind="sfx" name={scene.sfx} />
+                          {isAudioBed(scene.sfx) ? (
+                            <span className="self-center text-xs text-zinc-500">장면 전체 · 낮은 음량</span>
+                          ) : scene.sfx !== "none" && (
+                            <select
+                              aria-label={`장면 ${sceneIndex + 1} 효과음 재생 위치`}
+                              value={scene.sfxTiming ?? "start"}
+                              onChange={(event) => changeSfxTiming(sceneIndex, event.target.value as SfxTiming)}
+                              className="rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
+                            >
+                              <option value="start">장면 시작</option>
+                              <option value="middle">장면 중간</option>
+                              <option value="end">장면 끝</option>
+                            </select>
+                          )}
                         </div>
                       </div>
                     </li>
@@ -802,6 +831,7 @@ export default function ShortsPage() {
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
               영상 합성은 30초 분량에 몇 분이 걸려서 웹 서버에서는 못 돌립니다. 아래
               프로젝트 파일을 받아서 PC에서 아래 명령만 실행하면 완성본이 나옵니다.
+              새 음원과 재생 위치를 적용하려면 PC 프로젝트 폴더의 업데이트.bat을 먼저 실행해 주세요.
             </p>
             {projectUrl && (
               <a

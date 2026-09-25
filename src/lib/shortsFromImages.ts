@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
+import { AUDIO_DIRECTION, SFX_TIMINGS, directGeneratedAudio } from "./audioDirection.ts";
 import {
   AI_BGM_MOODS,
   AI_SFX_CUES,
@@ -40,7 +41,8 @@ const SceneSchema = z.object({
     .string()
     .describe("이 장면에서 읽을 한국어 나레이션 한 줄 (썰체, 2~4초 분량)"),
   // "내 효과음" 칸은 PC에 파일이 있는지 모르니 AI에겐 기본 제공 소리만 준다.
-  sfx: z.enum(AI_SFX_CUES).describe("이 장면 시작에 깔 효과음 큐"),
+  sfx: z.enum(AI_SFX_CUES).describe("사진 속 행동과 대사에 맞는 효과음 또는 환경음"),
+  sfxTiming: z.enum(SFX_TIMINGS).describe("효과음 재생 위치: 장면 시작·중간·끝"),
   kenBurns: z.enum(["in", "out"]).describe("느린 줌 방향"),
 });
 
@@ -184,7 +186,7 @@ ${pickingRules(imageCount, sceneCount)}
   · 모든 줄이 부호 없이 끝나면 실패다. 다시 써라.
 
 효과음(sfx)은 장면마다 하나씩 고른다. 고를 수 있는 이름과 소리는 이렇다: ${aiSfxMenu()}.
-첫 장면은 보통 boom이나 suspense, 반전 장면은 reveal이나 laugh가 어울린다. 같은 효과음을 계속 쓰지 말고 장면 분위기에 맞게 섞어라. 효과음이 없는 게 나으면 none.
+${AUDIO_DIRECTION}
 
 배경음악(bgmMood)은 영상 전체 분위기에 맞춰 하나 고른다: ${aiBgmMenu()}.
 
@@ -253,7 +255,7 @@ export const generateStoryboardFromImages = async (
       `쓸 만한 장면이 ${usable.length}개뿐이라 이야기가 안 됩니다. 다시 시도해주세요.`,
     );
   }
-  const scenes = usable.map((scene, i) => ({
+  const scenes = directGeneratedAudio(usable).map((scene, i) => ({
     ...scene,
     index: i + 1,
     imageUrl: imageUrls[scene.imageIndex - 1],
