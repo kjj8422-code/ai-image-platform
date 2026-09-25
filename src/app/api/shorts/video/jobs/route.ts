@@ -169,6 +169,7 @@ export async function POST(request: NextRequest) {
           cameraMotion: scene.cameraMotion,
           preserveNotes: scene.preserveNotes,
           prompt: scene.prompt,
+          sfx: scene.sfx,
           durationTargetSeconds: SCENE_DURATION_SECONDS,
         })),
       );

@@ -61,7 +61,6 @@ SCORES = {
     "travel": (104, [48,55,53,55], [0,4,7], "bell", [0,7,9,7,4,0,4,7], True),
     "documentary": (92, [50,53,48,55], [0,7,12], "keys", [0,7,3,7,0,7,5,7], False),
     "inspiring": (96, [48,55,57,53], [0,4,7], "pad", [0,4,7,12,14,12,7,4], True),
-    "comedy": (108, [48,53,50,55], [0,4,7], "pluck", [0,12,4,7,1,7,4,-5], True),
 }
 
 
@@ -91,7 +90,7 @@ def music(name, score):
 def effects():
     rng = np.random.default_rng(8422)
     result = {}
-    for name,secs,up in [("riser",1.8,True),("downer",1.1,False),("swipe",.25,True),("soft_whoosh",.7,True)]:
+    for name,secs,up in [("riser",1.8,True),("downer",1.1,False),("swipe",.25,True)]:
         t = np.arange(round(secs*SR))/SR
         env = np.sin(np.pi*t/secs)**1.5
         sweep = np.sin(2*np.pi*(130*t+(700 if up else -60)*t*t))

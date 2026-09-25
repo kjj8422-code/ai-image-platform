@@ -316,6 +316,17 @@ def test_empty_middle_narration_does_not_steal_next_words():
     assert scenes[2]["duration"] == 2.4, "말 없는 장면도 사진을 최소 시간은 보여준다"
 
 
+def test_retired_sounds_still_play_their_replacement():
+    """정리하며 뺀 음원(comedy, soft_whoosh)이 옛 프로젝트에 남아 있어도 소리가 빠지지 않는다."""
+    for old, new in bs.RETIRED_SFX.items():
+        path = bs.find_sfx(old)
+        assert path is not None and path.stem == new, (old, path)
+    for old, new in bs.RETIRED_BGM.items():
+        path = bs.find_bgm(old)
+        assert path is not None and path.stem == new, (old, path)
+        assert bs.mood_family(old) == bs.mood_family(new)
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
