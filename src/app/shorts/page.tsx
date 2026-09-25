@@ -47,7 +47,7 @@ const MIN_SCENES = 2;
 const STEP_LABEL: Record<Step, string> = {
   idle: "",
   uploading: "이미지 업로드 중...",
-  analyzing: "AI가 이미지를 보고 대본 쓰는 중... (30초 정도)",
+  analyzing: "AI가 이미지를 보고 대본 쓰는 중... (사진이 많으면 1~2분, 창을 닫지 마세요)",
   composing: "썸네일 만드는 중...",
   done: "완성!",
   error: "",
@@ -68,7 +68,7 @@ const readJson = async <T,>(response: Response, fallback: string): Promise<T> =>
     }
     if (response.status === 504) {
       throw new Error(
-        "서버가 제한 시간 안에 응답하지 못했습니다. 이미지 장수를 줄여 다시 시도해주세요.",
+        "AI가 5분 안에 대본을 끝내지 못했어요. 장면 수를 줄이거나 사진을 몇 장 빼고 다시 시도해 주세요.",
       );
     }
     throw new Error(`${fallback} (서버 응답 코드 ${response.status})`);

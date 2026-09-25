@@ -231,9 +231,8 @@ export const generateStoryboardFromImages = async (
     ],
     output_config: {
       format: zodOutputFormat(StoryboardSchema),
-      // 이 라우트는 Vercel에서 60초 안에 끝나야 한다(maxDuration). 사진이 10장까지
-      // 늘면 기본값으로는 그 안에 못 끝낼 수 있는데, 6~10장면짜리 대본은 medium으로도
-      // 품질이 떨어지지 않는다. 시간 초과로 아무것도 못 받는 쪽이 훨씬 나쁘다.
+      // 라우트 제한 시간(maxDuration 300초) 안에 여유 있게 끝내려고 medium으로 둔다.
+      // 6~10장면짜리 대본은 medium으로도 품질이 떨어지지 않는다.
       effort: "medium",
     },
   });

@@ -11,7 +11,8 @@ import {
   generateProductScript,
 } from "@/lib/productShorts";
 
-export const maxDuration = 60;
+// 사진과 후기가 많으면 1분을 넘길 수 있다(from-images 라우트와 같은 이유).
+export const maxDuration = 300;
 
 const text = (value: unknown, max: number): string =>
   typeof value === "string" ? value.trim().slice(0, max) : "";
