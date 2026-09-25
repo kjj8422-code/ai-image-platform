@@ -5,7 +5,7 @@
 노이즈·주파수 합성으로 만든 스타일화된 소리입니다. 기존 음원의 출처는
 각 `bgm/README.md`, `sfx/README.md`에 그대로 보존합니다.
 
-## 기본 BGM 12곡 추가 (총 16곡)
+## 기본 BGM 11곡 추가 (총 15곡)
 
 | 파일 | 편곡 |
 |---|---|
@@ -20,15 +20,19 @@
 | travel | 트로피컬 말렛·퍼커션 |
 | documentary | 미니멀 피아노 패턴 |
 | inspiring | 패드·상승 선율 |
-| comedy | 통통 튀는 플럭 |
 
 각 곡은 8마디이며 템포·선율·화성·악기 조합을 다르게 구성했습니다.
 영상이 길면 반복합니다. 44.1kHz / 128kbps MP3로 저장합니다.
 
-## 효과음 10개 + 환경음 6개 추가 (총 40개)
+## 효과음 9개 + 환경음 6개 추가 (총 39개)
 
 효과음: shutter, typing, heartbeat, ticking, riser, downer, swipe,
-soft_whoosh, success, glimmer.
+success, glimmer.
+
+> 정리(2026-09-25): 거의 같은 소리였던 BGM `comedy`(같은 악기·드럼의 upbeat와
+> 유사, 용도는 playful과 겹침)와 효과음 `soft_whoosh`(riser를 짧게 자른 것과 같은
+> 소리)를 뺐습니다. 예전 프로젝트에 이 이름이 있으면 합성기가 각각 playful,
+> whoosh로 대신 재생합니다(build_shorts.py의 RETIRED_BGM / RETIRED_SFX).
 
 환경음: rain, wind, waves, birds, fire, night. 카탈로그의 `playback: bed`가
 장면 전체 반복과 낮은 음량을 결정합니다. 일반 효과음은 최대 2초이며

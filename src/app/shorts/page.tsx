@@ -5,7 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import { downscaleToDataUrl } from "@/lib/downscaleImage";
-import { BGM_GROUPS, SFX_GROUPS } from "@/lib/audioCatalog";
+import { AI_BGM_MOODS, AI_SFX_CUES, BGM_GROUPS, SFX_GROUPS } from "@/lib/audioCatalog";
 import { isAudioBed, type SfxTiming } from "@/lib/audioDirection";
 import { AudioHelp } from "@/components/AudioHelp";
 import { AudioPreviewButton } from "@/components/AudioPreviewButton";
@@ -420,6 +420,12 @@ export default function ShortsPage() {
             AI 영상 쇼츠(베타) →
           </Link>
           <Link
+            href="/shorts/character"
+            className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+          >
+            AI 캐릭터 쇼츠(베타) →
+          </Link>
+          <Link
             href="/thumbnail"
             className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
           >
@@ -621,7 +627,8 @@ export default function ShortsPage() {
                 <AudioPreviewButton kind="bgm" name={storyboard.bgmMood} />
               </div>
               <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-                기본 BGM 16곡 · 효과음·환경음 40개. AI가 사진과 대사에 맞춰 소리와 재생 위치를 추천해요.
+                기본 BGM {AI_BGM_MOODS.length}곡 · 효과음·환경음{" "}
+                {AI_SFX_CUES.filter((cue) => cue !== "none").length}개. AI가 사진과 대사에 맞춰 소리와 재생 위치를 추천해요.
                 내레이션 중에는 배경음이 낮아지고, 환경음은 장면 전체에 깔립니다.
               </p>
               <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-900 dark:text-zinc-300">

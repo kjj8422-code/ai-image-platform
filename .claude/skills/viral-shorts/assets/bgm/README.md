@@ -1,6 +1,6 @@
 # 배경음악(BGM) 폴더
 
-스토리보드가 영상 전체 분위기에 맞춰 기본 음악 **16곡** 중 하나를 고릅니다.
+스토리보드가 영상 전체 분위기에 맞춰 기본 음악 **15곡** 중 하나를 고릅니다.
 기존 4곡과 새 합성 음악 12곡은 모두 파일이 포함되어 있습니다. 영상 길이에 맞춰
 반복하고 원본 음량을 맞춘 후 내레이션 중에는 더 낮춥니다.
 새 음악의 구성과 재생성 방법은 [추가 사운드 팩](../GENERATED_AUDIO.md)을 참고하세요.
@@ -34,7 +34,8 @@
 ## 확장 음악과 사용자 음악
 
 horror, sad, upbeat, chill, action, retro는 이제 실제 음원이 포함된 기본 음악입니다.
-warm, romantic, travel, documentary, inspiring, comedy도 추가되었습니다.
+warm, romantic, travel, documentary, inspiring도 추가되었습니다.
+(comedy는 upbeat·playful과 거의 같아 뺐고, 예전 프로젝트의 comedy는 playful로 재생됩니다.)
 AI가 모두 선택할 수 있고 웹에서 해당 파일을 미리 들을 수 있습니다.
 
 `my1`, `my2`만 비어 있는 사용자 슬롯입니다. 비어 있으면 playful로 대체합니다.

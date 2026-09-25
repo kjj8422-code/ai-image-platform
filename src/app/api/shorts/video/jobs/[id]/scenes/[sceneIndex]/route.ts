@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/requireUser";
 import { getOwnedScene, updateScene } from "@/lib/videoJobs";
+import { SFX_LIBRARY } from "@/lib/shortsStoryboard";
+
+const isSfxCue = (value: unknown): value is (typeof SFX_LIBRARY)[number] =>
+  typeof value === "string" && (SFX_LIBRARY as readonly string[]).includes(value);
 
 export const maxDuration = 15;
 
@@ -39,6 +43,7 @@ export async function PATCH(
     const patch: Parameters<typeof updateScene>[1] = {};
     if (typeof body?.narration === "string") patch.narration = body.narration;
     if (typeof body?.subtitle === "string") patch.subtitle = body.subtitle;
+    if (isSfxCue(body?.sfx)) patch.sfx = body.sfx;
 
     if (typeof body?.prompt === "string") {
       if (scene.status !== "queued" && scene.status !== "failed") {

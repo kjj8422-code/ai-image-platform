@@ -25,7 +25,10 @@ SKILL_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SKILL_DIR.parents[2]
 BUILDER = SKILL_DIR / "build_shorts.py"
 DOWNLOADS = Path.home() / "Downloads"
-PATTERN = "shorts-project*.json"
+# 화면마다 파일 이름이 다르다: shorts-project.json(사진 쇼츠),
+# shorts-video-project.json(AI 영상 쇼츠), shorts-character-project.json(캐릭터
+# 쇼츠). 셋 다 "shorts-...project....json" 꼴이라 이 패턴 하나로 다 잡는다.
+PATTERN = "shorts-*project*.json"
 
 POLL_SECONDS = 2
 # 브라우저가 파일을 다 쓰기 전에 읽으면 내용이 잘린 채로 실패한다. 크기가 두 번

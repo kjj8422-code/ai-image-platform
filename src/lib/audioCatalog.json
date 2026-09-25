@@ -31,7 +31,6 @@
     {"cue": "riser", "group": "전환·강조", "label": "슈우욱↑ (긴장 상승)", "hint": "rising sweep before an upcoming reveal, not after it"},
     {"cue": "downer", "group": "전환·강조", "label": "슈우욱↓ (풀림)", "hint": "descending sweep, relief or anticlimax"},
     {"cue": "swipe", "group": "전환·강조", "label": "슥 (사진 넘기기)", "hint": "short slide, quick photo change"},
-    {"cue": "soft_whoosh", "group": "전환·강조", "label": "사악 (부드러운 전환)", "hint": "soft airy transition, gentle scene change"},
     {"cue": "success", "group": "반짝·감성", "label": "따란 (작은 성취)", "hint": "gentle three-note success, solution found"},
     {"cue": "glimmer", "group": "반짝·감성", "label": "팅팅 (빛·발견)", "hint": "delicate glass tones, small beautiful discovery"},
     {"cue": "rain", "group": "환경음", "label": "빗소리 (장면 전체)", "hint": "rain ambience ONLY when rain is visible or explicitly in the narration", "playback": "bed"},
@@ -61,7 +60,6 @@
     {"mood": "travel", "family": "playful", "group": "밝음·리듬", "label": "여행 (트로피컬)", "hint": "sunny mallets and percussion, travel and beach"},
     {"mood": "documentary", "family": "mystery", "group": "긴장·영화", "label": "다큐 (미니멀 피아노)", "hint": "restrained piano pattern, factual explanation, discovery"},
     {"mood": "inspiring", "family": "epic", "group": "긴장·영화", "label": "희망 (패드·피아노)", "hint": "uplifting chords, achievement, hopeful ending"},
-    {"mood": "comedy", "family": "playful", "group": "밝음·리듬", "label": "코믹 (통통 플럭)", "hint": "bouncy plucked melody, awkward comedy, mischievous story"},
     {"mood": "my1", "family": "playful", "group": "직접 넣는 음악", "label": "내 음악 1"},
     {"mood": "my2", "family": "playful", "group": "직접 넣는 음악", "label": "내 음악 2"}
   ]

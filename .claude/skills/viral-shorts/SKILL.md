@@ -44,11 +44,14 @@ cp .claude/skills/viral-shorts/.env.example .claude/skills/viral-shorts/.env
 python .claude/skills/viral-shorts/build_shorts.py --topic "$ARG_TOPIC"
 ```
 
-웹 화면(`/shorts`)에서 내 이미지를 올려 만든 프로젝트 파일로 영상만 뽑을 때 — 이미지가
-이미 있으므로 생성 비용이 들지 않는다:
+웹 화면(`/shorts` 사진 쇼츠, `/shorts/video` AI 영상 쇼츠, `/shorts/character` AI 캐릭터
+쇼츠)에서 [프로젝트 파일 내려받기]로 받은 파일로 영상만 뽑을 때 — 이미지/영상이 이미
+있으므로(캐릭터 쇼츠는 이미지 생성 비용까지 웹에서 이미 치른 뒤) 여기선 비용이 들지 않는다:
 ```bash
 python .claude/skills/viral-shorts/build_shorts.py --project shorts-project.json
 ```
+다운로드 폴더를 지켜보다가 파일이 떨어지면 세 화면 전부 알아서 영상까지 만드는 방법은
+`쇼츠-자동만들기.bat` 참고(`watch_downloads.py`).
 
 대본·이미지·음성까지만 만들어 먼저 검토하고 싶을 때:
 ```bash

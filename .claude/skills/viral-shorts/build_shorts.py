@@ -865,18 +865,25 @@ def load_bgm_families() -> dict:
 
 BGM_FAMILIES = load_bgm_families()
 
+# 목록에서 뺀 음원 -> 대신 쓸 음원. 거의 같은 소리라 정리했지만, 예전에 내려받은
+# 프로젝트 파일에는 옛 이름이 남아 있을 수 있어서 소리가 통째로 빠지지 않게 잇는다.
+RETIRED_BGM = {"comedy": "playful"}  # 같은 악기·드럼의 upbeat와 거의 같고, 용도는 playful과 겹침
+RETIRED_SFX = {"soft_whoosh": "whoosh"}  # riser를 짧게 자른 것과 같은 소리
+
 
 def mood_family(mood: str) -> str:
     """제목 색·목소리 톤을 정할 때 쓰는 기본 분위기."""
+    mood = RETIRED_BGM.get(mood, mood)
     return BGM_FAMILIES.get(mood, mood)
 
 
 def find_sfx(cue: str):
     """효과음 파일을 찾는다. 직접 넣은 것 -> 기본 제공 순. 없으면 None."""
-    for folder in (USER_SFX_DIR, SFX_DIR):
-        path = folder / f"{cue}.mp3"
-        if path.exists():
-            return path
+    for name in dict.fromkeys((cue, RETIRED_SFX.get(cue, cue))):
+        for folder in (USER_SFX_DIR, SFX_DIR):
+            path = folder / f"{name}.mp3"
+            if path.exists():
+                return path
     return None
 
 

@@ -39,7 +39,6 @@ export const SFX_LIBRARY = [
   "riser",
   "downer",
   "swipe",
-  "soft_whoosh",
   "success",
   "glimmer",
   "rain",
@@ -72,7 +71,6 @@ export const BGM_MOODS = [
   "travel",
   "documentary",
   "inspiring",
-  "comedy",
   "my1",
   "my2",
 ] as const;
@@ -119,6 +117,12 @@ export const AI_SFX_CUES = SFX_ENTRIES.filter((e) => e.hint).map(
 export const AI_BGM_MOODS = BGM_ENTRIES.filter((e) => e.hint).map(
   (e) => e.mood,
 ) as [BgmMood, ...BgmMood[]];
+
+// 무료 미리보기(모의 생성)에서 장면마다 돌려 쓸 효과음. 환경음(빗소리 등 장면 전체에
+// 깔리는 소리)은 사진과 상관없이 나오면 어색해서 뺀다.
+export const PREVIEW_SFX_CUES = AI_SFX_CUES.filter(
+  (cue) => !SFX_ENTRIES.some((e) => e.cue === cue && e.playback === "bed"),
+);
 
 export const aiSfxMenu = (): string =>
   SFX_ENTRIES.filter((e) => e.hint)

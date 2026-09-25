@@ -6,10 +6,12 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { readJson } from "@/lib/readJson";
 import { useSupabaseUser } from "@/lib/useSupabaseUser";
-import { BGM_GROUPS, type BgmMood } from "@/lib/audioCatalog";
+import { BGM_GROUPS, SFX_GROUPS, type BgmMood, type SfxCue } from "@/lib/audioCatalog";
 import { AudioHelp } from "@/components/AudioHelp";
 import { AudioPreviewButton } from "@/components/AudioPreviewButton";
 import { MOCK_PROVIDER_MODEL } from "@/lib/videoBudget";
+import type { SceneStyle } from "@/lib/characterShorts";
+import { STYLE_OPTIONS, BGM_MOOD_BY_STYLE } from "@/lib/shortsUiLabels";
 
 // 사진 쇼츠(../page.tsx)와 같은 업로드 제약 재사용.
 const MIN_IMAGES = 5;
@@ -21,23 +23,7 @@ const MAX_IMAGES = 15;
 // 참고. 재인코딩 시에는 화질 손실을 최소화하려고 높은 JPEG 품질을 쓴다.
 const JPEG_QUALITY = 0.95;
 
-type JobStyle = "comic" | "jeju_travel" | "emotional" | "product_ad";
-
-const STYLE_OPTIONS: { value: JobStyle; label: string }[] = [
-  { value: "comic", label: "코믹 썰" },
-  { value: "jeju_travel", label: "제주 여행 소개" },
-  { value: "emotional", label: "감성 영상" },
-  { value: "product_ad", label: "제품 광고" },
-];
-
-// build_shorts.py의 BGM_DIR에 있는 무드 중 스타일과 톤이 가까운 것을 기본값으로
-// 고른다. 화면에서 직접 바꿀 수도 있다(아래 bgmMood 상태).
-const BGM_MOOD_BY_STYLE: Record<JobStyle, BgmMood> = {
-  comic: "playful",
-  jeju_travel: "epic",
-  emotional: "dreamy",
-  product_ad: "epic",
-};
+type JobStyle = SceneStyle;
 
 type JobStatus =
   | "idle"
@@ -69,6 +55,7 @@ type Scene = {
   subtitle: string | null;
   keyAction: string | null;
   cameraMotion: string | null;
+  sfx: SfxCue;
   status: SceneStatus;
   videoUrl: string | null;
   providerModel: string | null;
@@ -497,6 +484,65 @@ function VideoShortsPageInner() {
     }
   };
 
+  const saveSceneSfx = async (scene: Scene, sfx: SfxCue) => {
+    if (!job) return;
+    setSceneActionError((prev) => ({ ...prev, [scene.sceneIndex]: "" }));
+    try {
+      const res = await authedFetch(
+        `/api/shorts/video/jobs/${job.id}/scenes/${scene.sceneIndex}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sfx }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "효과음 변경에 실패했습니다.");
+      setScenes((prev) => prev.map((s) => (s.sceneIndex === scene.sceneIndex ? data.scene : s)));
+    } catch (err) {
+      setSceneActionError((prev) => ({
+        ...prev,
+        [scene.sceneIndex]: err instanceof Error ? err.message : "알 수 없는 오류",
+      }));
+    }
+  };
+
+  // "다른 대본" — 이 장면 이미지 한 장만 다시 보내 나레이션/자막/효과음을 새로
+  // 뽑는다. 영상 클립과는 무관한 Claude 호출이라 장면이 어떤 상태든 눌러도 된다.
+  // 실제 비용이 드는 호출이라 버튼 라벨에 비용을 표시해 클릭 자체를 승인으로 본다.
+  const [rewritingScenes, setRewritingScenes] = useState<Set<number>>(new Set());
+
+  const rewriteScene = async (scene: Scene) => {
+    if (!job) return;
+    setRewritingScenes((prev) => new Set(prev).add(scene.sceneIndex));
+    setSceneActionError((prev) => ({ ...prev, [scene.sceneIndex]: "" }));
+    try {
+      const res = await authedFetch(
+        `/api/shorts/video/jobs/${job.id}/scenes/${scene.sceneIndex}/rewrite`,
+        { method: "POST" },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "다른 대본을 받지 못했습니다.");
+      setScenes((prev) => prev.map((s) => (s.sceneIndex === scene.sceneIndex ? data.scene : s)));
+      setEditedText((prev) => {
+        const next = { ...prev };
+        delete next[scene.sceneIndex];
+        return next;
+      });
+    } catch (err) {
+      setSceneActionError((prev) => ({
+        ...prev,
+        [scene.sceneIndex]: err instanceof Error ? err.message : "알 수 없는 오류",
+      }));
+    } finally {
+      setRewritingScenes((prev) => {
+        const next = new Set(prev);
+        next.delete(scene.sceneIndex);
+        return next;
+      });
+    }
+  };
+
   const canSubmit = files.length >= MIN_IMAGES && !submitting;
 
   // 모든 장면이 길이가 같아(SCENE_DURATION_SECONDS) job.estimatedCostCents를
@@ -520,7 +566,7 @@ function VideoShortsPageInner() {
       scenes: scenes.map((scene) => ({
         index: scene.sceneIndex,
         narration: scene.narration ?? "",
-        sfx: "none",
+        sfx: scene.sfx,
         kenBurns: "in",
         videoUrl: scene.videoUrl,
       })),
@@ -727,6 +773,21 @@ function VideoShortsPageInner() {
                       className="mt-0.5 w-full resize-y rounded border border-zinc-300 bg-transparent px-2 py-1 text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
                     />
                     {scene.keyAction && <p className="mt-0.5 text-xs text-zinc-400">동작: {scene.keyAction}</p>}
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <label className="text-xs text-zinc-400">효과음</label>
+                      <select
+                        value={scene.sfx}
+                        onChange={(e) => void saveSceneSfx(scene, e.target.value as SfxCue)}
+                        className="rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-xs dark:border-zinc-700"
+                      >
+                        {SFX_GROUPS.map(({ group, items }) => (
+                        <optgroup key={group} label={group}>
+                          {items.map((entry) => <option key={entry.cue} value={entry.cue}>{entry.label}</option>)}
+                        </optgroup>
+                      ))}
+                      </select>
+                      <AudioPreviewButton kind="sfx" name={scene.sfx} />
+                    </div>
                     {scene.error && <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">{scene.error}</p>}
                     {sceneActionError[scene.sceneIndex] && (
                       <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">{sceneActionError[scene.sceneIndex]}</p>
@@ -737,6 +798,9 @@ function VideoShortsPageInner() {
                           {isSaving ? "저장 중..." : "대사 저장"}
                         </button>
                       )}
+                      <button type="button" disabled={rewritingScenes.has(scene.sceneIndex)} onClick={() => void rewriteScene(scene)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
+                        {rewritingScenes.has(scene.sceneIndex) ? "다른 대본 받는 중..." : "다른 대본 (소액 비용)"}
+                      </button>
                       {needsFirstGenerate && (
                         <button type="button" disabled={isBusy} onClick={() => void generateScene(scene, "mock")} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
                           {isBusy ? "요청 중..." : "미리보기 생성 ($0.00)"}

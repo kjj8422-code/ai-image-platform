@@ -51,6 +51,7 @@ create table if not exists video_scenes (
   camera_motion text,
   preserve_notes text, -- 유지해야 할 외형/색상/소품 메모
   prompt text, -- 실제로 공급자에 보낸 최종 프롬프트
+  sfx text not null default 'none', -- 사진 쇼츠와 같은 효과음 큐 집합(shortsStoryboard.ts의 SFX_LIBRARY)
 
   duration_target_seconds numeric not null default 5,
   trim_start_seconds numeric not null default 0, -- 생성 길이 중 최종본에 쓸 구간

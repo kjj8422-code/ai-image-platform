@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import type { SfxCue } from "@/lib/shortsStoryboard";
 
 // video_jobs / video_scenes 테이블 접근 계층. 라우트는 이 함수들만 쓰고 직접
 // supabaseAdmin을 만지지 않는다 — 소유권 검증(user_id 조건)을 여기 한 곳에 모아두면
@@ -69,6 +70,7 @@ export type VideoScene = {
   cameraMotion: string | null;
   preserveNotes: string | null;
   prompt: string | null;
+  sfx: SfxCue;
   durationTargetSeconds: number;
   trimStartSeconds: number;
   trimEndSeconds: number | null;
@@ -117,6 +119,7 @@ type SceneRow = {
   camera_motion: string | null;
   preserve_notes: string | null;
   prompt: string | null;
+  sfx: SfxCue;
   duration_target_seconds: number;
   trim_start_seconds: number;
   trim_end_seconds: number | null;
@@ -165,6 +168,7 @@ const toScene = (row: SceneRow): VideoScene => ({
   cameraMotion: row.camera_motion,
   preserveNotes: row.preserve_notes,
   prompt: row.prompt,
+  sfx: row.sfx,
   durationTargetSeconds: row.duration_target_seconds,
   trimStartSeconds: row.trim_start_seconds,
   trimEndSeconds: row.trim_end_seconds,
@@ -335,6 +339,7 @@ export type NewSceneInput = {
   cameraMotion: string;
   preserveNotes: string;
   prompt: string;
+  sfx: SfxCue;
   durationTargetSeconds: number;
 };
 
@@ -352,6 +357,7 @@ export const insertScenes = async (scenes: NewSceneInput[]): Promise<void> => {
       camera_motion: s.cameraMotion,
       preserve_notes: s.preserveNotes,
       prompt: s.prompt,
+      sfx: s.sfx,
       duration_target_seconds: s.durationTargetSeconds,
     })),
   );
@@ -416,6 +422,7 @@ export const updateScene = async (
     subtitle: string;
     prompt: string;
     sourceImageUrl: string;
+    sfx: SfxCue;
   }>,
 ): Promise<VideoScene> => {
   const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -432,6 +439,7 @@ export const updateScene = async (
   if (patch.subtitle !== undefined) row.subtitle = patch.subtitle;
   if (patch.prompt !== undefined) row.prompt = patch.prompt;
   if (patch.sourceImageUrl !== undefined) row.source_image_url = patch.sourceImageUrl;
+  if (patch.sfx !== undefined) row.sfx = patch.sfx;
 
   const { data, error } = await getSupabaseAdmin()
     .from("video_scenes")
