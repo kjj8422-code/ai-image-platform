@@ -89,6 +89,7 @@ const readJson = async <T,>(response: Response, fallback: string): Promise<T> =>
 export default function ShortsPage() {
   const { user, loading: userLoading } = useSupabaseUser();
 
+  const [narrationVoice, setNarrationVoice] = useState("auto");
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -120,9 +121,9 @@ export default function ShortsPage() {
   // URL로 바로 만든다 — objectURL과 달리 나중에 해제할 것이 남지 않는다.
   const projectUrl = useMemo(() => {
     if (!storyboard) return "";
-    const json = JSON.stringify({ ...storyboard, source: "web-upload" }, null, 2);
+    const json = JSON.stringify({ ...storyboard, source: "web-upload", narrationVoice }, null, 2);
     return `data:application/json;charset=utf-8,${encodeURIComponent(json)}`;
-  }, [storyboard]);
+  }, [storyboard, narrationVoice]);
 
   const authedFetch = async (input: string, init: RequestInit = {}) => {
     const {
@@ -433,6 +434,27 @@ export default function ShortsPage() {
           </Link>
         </div>
       </div>
+
+      <section className="flex w-full max-w-2xl flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+        <label htmlFor="narration-voice" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          나레이션 목소리
+        </label>
+        <select
+          id="narration-voice"
+          value={narrationVoice}
+          onChange={(event) => setNarrationVoice(event.target.value)}
+          disabled={busy}
+          className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+        >
+          <option value="auto">자동 · 이야기 분위기에 맞게</option>
+          <option value="ko-KR-SunHiNeural">여성 · 선히</option>
+          <option value="ko-KR-InJoonNeural">남성 · 인준</option>
+        </select>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          대본을 만든 뒤에도 바꿀 수 있어요. 선택한 목소리는 프로젝트 파일에 저장되며,
+          최신 PC 합성기로 최종 영상을 만들 때 적용됩니다.
+        </p>
+      </section>
 
       {/* 1단계: 업로드 */}
       <section className="flex w-full max-w-2xl flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
