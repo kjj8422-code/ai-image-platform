@@ -1227,6 +1227,29 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+
+def resolve_narration_style(storyboard: dict, cli_voice: str | None = None) -> dict:
+    """CLI override > web voice selection > existing mood-based default."""
+    mood = storyboard.get("bgmMood", DEFAULT_BGM_MOOD)
+    style = dict(VOICE_STYLES.get(mood_family(mood), DEFAULT_VOICE_STYLE))
+    selected = storyboard.get("narrationVoice", "auto")
+    if cli_voice:
+        style["voice"] = cli_voice
+    elif selected in ("ko-KR-SunHiNeural", "ko-KR-InJoonNeural"):
+        style["voice"] = selected
+    elif selected not in (None, "", "auto"):
+        raise ValueError("지원하지 않는 나레이션 목소리입니다. 웹에서 다시 선택해 주세요.")
+    return style
+
+
+def narration_cache_matches(path: Path, settings: dict) -> bool:
+    """Never reuse audio made with another voice, mood, or script."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) == settings
+    except (OSError, ValueError):
+        return False
+
+
 def main() -> None:
     args = parse_args()
     if not args.topic and not args.storyboard and not args.project:
@@ -1277,23 +1300,29 @@ def main() -> None:
     # 이걸 이미지(장당 실제 비용) 앞에 두어야 실패해도 돈이 안 나간다.
     narration_path = work_dir / "audio" / "narration.mp3"
     words_path = work_dir / "audio" / "narration.words.json"
-    if narration_path.exists() and words_path.exists() and not args.regenerate:
+    mood = storyboard.get("bgmMood", DEFAULT_BGM_MOOD)
+    style = resolve_narration_style(storyboard, args.voice)
+    narration_texts = [s["narration"] for s in storyboard["scenes"]]
+    cache_path = work_dir / "audio" / "narration.settings.json"
+    cache_settings = {"version": 1, "style": style, "narrations": narration_texts}
+    if (narration_path.exists() and words_path.exists() and not args.regenerate
+            and narration_cache_matches(cache_path, cache_settings)):
         print("3) 나레이션 재사용")
         per_scene_words = json.loads(words_path.read_text(encoding="utf-8"))
     else:
-        mood = storyboard.get("bgmMood", DEFAULT_BGM_MOOD)
-        style = dict(VOICE_STYLES.get(mood_family(mood), DEFAULT_VOICE_STYLE))
-        if args.voice:
-            style["voice"] = args.voice
+        cache_path.unlink(missing_ok=True)
         print(
             f"3) 나레이션 {len(storyboard['scenes'])}줄을 한 번에 합성하는 중... "
             f"({mood} 톤 · {style['voice']} · 속도 {style['rate']} · 높이 {style['pitch']})"
         )
         per_scene_words = synthesize_all_narrations(
-            [s["narration"] for s in storyboard["scenes"]], narration_path, style
+            narration_texts, narration_path, style
         )
         words_path.write_text(
             json.dumps(per_scene_words, ensure_ascii=False), encoding="utf-8"
+        )
+        cache_path.write_text(
+            json.dumps(cache_settings, ensure_ascii=False), encoding="utf-8"
         )
 
     prepared: list[dict] = []
