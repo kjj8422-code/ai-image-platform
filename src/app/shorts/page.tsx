@@ -9,6 +9,8 @@ import { AI_BGM_MOODS, AI_SFX_CUES, BGM_GROUPS, SFX_GROUPS } from "@/lib/audioCa
 import { isAudioBed, type SfxTiming } from "@/lib/audioDirection";
 import { AudioHelp } from "@/components/AudioHelp";
 import { AudioPreviewButton } from "@/components/AudioPreviewButton";
+import { PersonalAudioLibrary } from "@/components/PersonalAudioLibrary";
+import type { PersonalAudio } from "@/lib/personalAudio";
 
 type Step = "idle" | "uploading" | "analyzing" | "composing" | "done" | "error";
 
@@ -99,6 +101,7 @@ export default function ShortsPage() {
   const [sceneChoice, setSceneChoice] = useState<"auto" | number>("auto");
   const [errorMessage, setErrorMessage] = useState("");
   const [storyboard, setStoryboard] = useState<Storyboard | null>(null);
+  const [personalBgm, setPersonalBgm] = useState<PersonalAudio | null>(null);
   const [thumbnailUrl, setThumbnailUrl] = useState("");
   // 올린 순서 그대로의 저장소 주소. 장면이 어느 사진을 쓰는지 되짚고, 다른 사진으로
   // 바꿔 끼우는 데 쓴다.
@@ -120,9 +123,9 @@ export default function ShortsPage() {
   // URL로 바로 만든다 — objectURL과 달리 나중에 해제할 것이 남지 않는다.
   const projectUrl = useMemo(() => {
     if (!storyboard) return "";
-    const json = JSON.stringify({ ...storyboard, source: "web-upload" }, null, 2);
+    const json = JSON.stringify({ ...storyboard, source: "web-upload", personalBgm }, null, 2);
     return `data:application/json;charset=utf-8,${encodeURIComponent(json)}`;
-  }, [storyboard]);
+  }, [storyboard, personalBgm]);
 
   const authedFetch = async (input: string, init: RequestInit = {}) => {
     const {
@@ -433,6 +436,8 @@ export default function ShortsPage() {
           </Link>
         </div>
       </div>
+
+      <PersonalAudioLibrary mood={storyboard?.bgmMood} onSelection={setPersonalBgm} />
 
       {/* 1단계: 업로드 */}
       <section className="flex w-full max-w-2xl flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
