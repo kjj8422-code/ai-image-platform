@@ -1044,6 +1044,7 @@ def build_audio(
     total_duration: float,
     bgm_mood: str,
     narration_path: Path,
+    personal_bgm: dict | None = None,
 ):
     """나레이션 + 장면별 SFX/환경음 + 음량 정규화·덕킹 BGM을 섞는다."""
     from moviepy import AudioFileClip, CompositeAudioClip, afx
@@ -1101,8 +1102,12 @@ def build_audio(
             else:
                 print(f"    (효과음 없음: {cue}.mp3 — 건너뜀. 음원넣기.bat으로 채울 수 있어요)")
 
-    bgm_path = find_bgm(bgm_mood)
-    if bgm_path and bgm_path.stem != bgm_mood:
+    if personal_bgm:
+        from audio_library_sync import resolve_local_track
+        bgm_path = resolve_local_track(personal_bgm.get("id", ""))
+    else:
+        bgm_path = find_bgm(bgm_mood)
+    if not personal_bgm and bgm_path and bgm_path.stem != bgm_mood:
         print(f"    ({bgm_mood} 음악이 아직 없어서 비슷한 {bgm_path.stem} 곡을 씁니다)")
     if bgm_path:
         bgm = AudioFileClip(str(bgm_path)).with_effects(
@@ -1149,6 +1154,7 @@ def build_video(
             video.duration,
             storyboard.get("bgmMood", DEFAULT_BGM_MOOD),
             narration_path,
+            storyboard.get("personalBgm"),
         )
     )
     video.write_videofile(
