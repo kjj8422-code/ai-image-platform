@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { UPLOADED_CLIP_MODEL } from "@/lib/sceneClipUpload";
 import type { SfxCue } from "@/lib/shortsStoryboard";
 
 // video_jobs / video_scenes 테이블 접근 계층. 라우트는 이 함수들만 쓰고 직접
@@ -437,6 +438,18 @@ export const updateScene = async (
     .single();
   if (error) throw error;
   return toScene(data as SceneRow);
+};
+
+// Compare-and-swap prevents a completed upload replacing a newer edit or running generation.
+export const attachUploadedClip = async (scene: VideoScene, videoUrl: string, path: string): Promise<VideoScene | null> => {
+  const { data, error } = await getSupabaseAdmin().from("video_scenes").update({
+    video_url: videoUrl, provider_model: UPLOADED_CLIP_MODEL, status: "ready",
+    provider_job_id: null, provider_raw_url: null, last_polled_at: null, error: null,
+    updated_at: new Date().toISOString(),
+    generation_history: [...scene.generationHistory, { providerJobId: `upload:${path}`, videoUrl, costCents: 0, createdAt: new Date().toISOString(), status: "ready" }],
+  }).eq("id", scene.id).eq("updated_at", scene.updatedAt).neq("status", "generating").select("*").maybeSingle();
+  if (error) throw error;
+  return data ? toScene(data as SceneRow) : null;
 };
 
 // cron/status-polling 양쪽에서 쓰는 "지금 생성 중인 모든 장면" 조회.
