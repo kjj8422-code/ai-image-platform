@@ -1,4 +1,5 @@
 import catalog from "./audioCatalog.json" with { type: "json" };
+import musicLibrary from "./musicLibrary.json" with { type: "json" };
 
 // 효과음·배경음악 목록은 웹(고르는 화면·AI 대본)과 PC의 build_shorts.py(실제 mp3를
 // 찾아 섞는 쪽)가 같이 본다. 한쪽에만 이름을 추가하면 웹에서 고른 소리가 PC에서
@@ -138,9 +139,12 @@ export const aiBgmMenu = (): string =>
 // - 효과음: 기본 제공 소리만 들을 수 있다("내 효과음" 칸은 사장님 PC에만 있다).
 // - 배경음악: 직접 넣는 칸은 비어 있으면 대신 나오는 기본 곡(family)을 들려준다.
 //   PC에 곡을 넣었다면 실제 영상에는 그 곡이 나온다는 점은 화면에서 안내한다.
-export type PreviewFile = { kind: "sfx" | "bgm"; name: string; isStandIn: boolean };
+export type PreviewFile = { kind: "sfx" | "bgm" | "library"; name: string; isStandIn: boolean };
 
 export const resolvePreviewFile = (kind: string, name: string): PreviewFile | null => {
+  if ((kind === "bgm" || kind === "library") && musicLibrary.some(t => t.id === name)) {
+    return { kind: "library", name, isStandIn: false };
+  }
   if (kind === "sfx") {
     const entry = sfxByCue.get(name);
     return entry?.hint && entry.cue !== "none"
