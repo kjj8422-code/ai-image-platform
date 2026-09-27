@@ -3,7 +3,7 @@ create or replace function public.reorder_video_scenes(
   p_job_id uuid, p_order uuid[], p_expected_order uuid[]
 ) returns void
 language plpgsql
-security definer
+security invoker
 set search_path = public
 as $$
 declare
@@ -40,3 +40,4 @@ end;
 $$;
 revoke all on function public.reorder_video_scenes(uuid,uuid[],uuid[]) from public, anon, authenticated;
 grant execute on function public.reorder_video_scenes(uuid,uuid[],uuid[]) to service_role;
+
