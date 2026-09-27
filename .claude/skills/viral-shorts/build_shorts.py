@@ -26,6 +26,7 @@ build_shorts.py
 
 import argparse
 import asyncio
+import hashlib
 import json
 import math
 import os
@@ -887,13 +888,48 @@ def find_sfx(cue: str):
     return None
 
 
-def find_bgm(mood: str):
-    """배경음악 파일을 찾는다. 그 분위기 파일이 없으면 비슷한 기본 곡으로 물러선다."""
+# 사장님 음악 모음(assets/user/bgm/<분위기> (<한글 이름>)/*.mp3)에서 가사 있는 곡은
+# 파일 이름 앞에 이 표시를 붙여 둔다. 나레이션이 있는 영상에서는 목소리끼리 겹치지
+# 않게 가사 없는 곡을 먼저 고른다.
+VOCAL_TRACK_PREFIX = "[보컬]"
+
+
+def library_tracks(mood: str) -> list[Path]:
+    """음악 모음 폴더에서 그 분위기 곡들을 찾는다. 폴더 이름은 'warm (따뜻한)'처럼
+    분위기 이름으로 시작하면 된다(뒤의 한글 설명은 사람이 보기 좋으라고 붙인 것)."""
+    if not USER_BGM_DIR.is_dir():
+        return []
+    tracks: list[Path] = []
+    for folder in sorted(USER_BGM_DIR.iterdir()):
+        if folder.is_dir() and folder.name.split(" ")[0] == mood:
+            tracks.extend(sorted(folder.glob("*.mp3")))
+    return tracks
+
+
+def pick_library_track(tracks: list[Path], seed: str, avoid_vocals: bool) -> Path:
+    """같은 대본이면 다시 만들어도 같은 곡, 대본이 다르면 다른 곡이 나오게 고른다."""
+    if avoid_vocals:
+        instrumental = [t for t in tracks if not t.name.startswith(VOCAL_TRACK_PREFIX)]
+        tracks = instrumental or tracks
+    index = int(hashlib.md5(seed.encode("utf-8")).hexdigest(), 16) % len(tracks)
+    return tracks[index]
+
+
+def find_bgm(mood: str, seed: str = "", avoid_vocals: bool = False):
+    """배경음악 파일을 찾는다. 그 분위기 파일이 없으면 비슷한 기본 곡으로 물러선다.
+
+    순서: 직접 넣은 한 곡(user/bgm/<분위기>.mp3) → 음악 모음 폴더에서 한 곡 → 기본 곡.
+    """
     for name in dict.fromkeys((mood, mood_family(mood))):
-        for folder in (USER_BGM_DIR, BGM_DIR):
-            path = folder / f"{name}.mp3"
-            if path.exists():
-                return path
+        single = USER_BGM_DIR / f"{name}.mp3"
+        if single.exists():
+            return single
+        tracks = library_tracks(name)
+        if tracks:
+            return pick_library_track(tracks, seed, avoid_vocals)
+        builtin = BGM_DIR / f"{name}.mp3"
+        if builtin.exists():
+            return builtin
     return None
 
 
@@ -1044,6 +1080,7 @@ def build_audio(
     total_duration: float,
     bgm_mood: str,
     narration_path: Path,
+    bgm_seed: str = "",
 ):
     """나레이션 + 장면별 SFX/환경음 + 음량 정규화·덕킹 BGM을 섞는다."""
     from moviepy import AudioFileClip, CompositeAudioClip, afx
@@ -1101,8 +1138,11 @@ def build_audio(
             else:
                 print(f"    (효과음 없음: {cue}.mp3 — 건너뜀. 음원넣기.bat으로 채울 수 있어요)")
 
-    bgm_path = find_bgm(bgm_mood)
-    if bgm_path and bgm_path.stem != bgm_mood:
+    has_voice = any(scene.get("words") for scene in scenes)
+    bgm_path = find_bgm(bgm_mood, bgm_seed, avoid_vocals=has_voice)
+    if bgm_path and bgm_path.parent != BGM_DIR and bgm_path.parent != USER_BGM_DIR:
+        print(f"    (음악 모음에서 고른 곡: {bgm_path.stem})")
+    elif bgm_path and bgm_path.stem != bgm_mood:
         print(f"    ({bgm_mood} 음악이 아직 없어서 비슷한 {bgm_path.stem} 곡을 씁니다)")
     if bgm_path:
         bgm = AudioFileClip(str(bgm_path)).with_effects(
@@ -1149,6 +1189,8 @@ def build_video(
             video.duration,
             storyboard.get("bgmMood", DEFAULT_BGM_MOOD),
             narration_path,
+            # 음악 모음에서 곡을 고를 때 쓰는 기준: 같은 대본이면 같은 곡.
+            bgm_seed=copy_text + "".join(s.get("narration", "") for s in scenes),
         )
     )
     video.write_videofile(

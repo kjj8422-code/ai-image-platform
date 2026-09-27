@@ -153,6 +153,35 @@ def test_empty_music_slot_falls_back_to_similar_builtin():
             _restore_audio_dirs(saved)
 
 
+def test_music_library_folder_picks_a_track_and_skips_vocals_under_narration():
+    """'warm (따뜻한)' 폴더에 곡이 여러 개면 그중 하나를 고른다. 같은 대본이면 같은 곡,
+    나레이션이 있으면 가사 있는 곡([보컬])은 피한다. 한 곡 파일(warm.mp3)이 있으면 그게 먼저다."""
+    with tempfile.TemporaryDirectory() as tmp:
+        saved = _with_audio_dirs(Path(tmp))
+        try:
+            (bs.BGM_DIR / "warm.mp3").write_bytes(b"x")
+            folder = bs.USER_BGM_DIR / "warm (따뜻한)"
+            folder.mkdir(parents=True)
+            names = ["A song.mp3", "B song.mp3", f"{bs.VOCAL_TRACK_PREFIX} C song.mp3"]
+            for n in names:
+                (folder / n).write_bytes(b"x")
+            picked = {bs.find_bgm("warm", seed=f"대본{i}").name for i in range(30)}
+            assert picked == set(names), picked  # 대본이 다르면 여러 곡이 골고루 나온다
+            assert bs.find_bgm("warm", "같은 대본") == bs.find_bgm("warm", "같은 대본")
+            for i in range(30):
+                chosen = bs.find_bgm("warm", seed=f"대본{i}", avoid_vocals=True)
+                assert not chosen.name.startswith(bs.VOCAL_TRACK_PREFIX), chosen
+            # 가사 있는 곡뿐이면 그거라도 쓴다(음악이 통째로 빠지는 것보다 낫다)
+            only_vocal = bs.USER_BGM_DIR / "sad (슬픔)"
+            only_vocal.mkdir()
+            (only_vocal / f"{bs.VOCAL_TRACK_PREFIX} D.mp3").write_bytes(b"x")
+            assert bs.find_bgm("sad", "x", avoid_vocals=True).parent == only_vocal
+            (bs.USER_BGM_DIR / "warm.mp3").write_bytes(b"x")
+            assert bs.find_bgm("warm", "아무거나") == bs.USER_BGM_DIR / "warm.mp3"
+        finally:
+            _restore_audio_dirs(saved)
+
+
 def test_new_moods_borrow_title_and_voice_style():
     """새 분위기도 제목 색·목소리 톤이 기본값으로 뭉개지지 않고 비슷한 계열을 따른다."""
     assert bs.mood_family("horror") == "mystery"
@@ -322,8 +351,10 @@ def test_retired_sounds_still_play_their_replacement():
         path = bs.find_sfx(old)
         assert path is not None and path.stem == new, (old, path)
     for old, new in bs.RETIRED_BGM.items():
-        path = bs.find_bgm(old)
-        assert path is not None and path.stem == new, (old, path)
+        # 음악 모음이 있으면 그 분위기 폴더의 곡, 없으면 기본 곡 — 어느 쪽이든 대신할
+        # 분위기(new)를 골랐을 때와 똑같은 곡이 나와야 한다.
+        path = bs.find_bgm(old, "같은 대본")
+        assert path is not None and path == bs.find_bgm(new, "같은 대본"), (old, path)
         assert bs.mood_family(old) == bs.mood_family(new)
 
 
