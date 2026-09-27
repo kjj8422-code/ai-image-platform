@@ -296,7 +296,8 @@ def make_clip_short(
 
         bgm_index = None
         if bgm:
-            bgm_path = bs.find_bgm(bgm)
+            # 음악 모음에서 고를 때: 제목·자막이 다르면 다른 곡, 원본 소리와 겹치지 않게 가사 없는 곡 먼저
+            bgm_path = bs.find_bgm(bgm, seed=title + captions_text + str(source), avoid_vocals=True)
             if bgm_path:
                 inputs.extend(["-stream_loop", "-1", "-i", str(bgm_path)])
                 bgm_index = len(overlays) + 1
