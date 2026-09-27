@@ -31,7 +31,9 @@ export async function POST(
     if (!found) {
       return NextResponse.json({ error: "장면을 찾을 수 없습니다." }, { status: 404 });
     }
+    const body = await request.json().catch(() => ({}));
     const { job, scene } = found;
+    if (body.sceneId && body.sceneId !== scene.id) return NextResponse.json({ error: "장면 순서가 바뀌었습니다. 새로고침 후 다시 시도하세요." }, { status: 409 });
 
     try {
       const rewritten = await rewriteSceneNarration(

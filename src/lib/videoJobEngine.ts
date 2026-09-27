@@ -1,3 +1,4 @@
+import { withSceneContinuity } from "@/lib/videoSceneEditing";
 import { getVideoProvider, getDefaultVideoProviderName } from "@/lib/videoProvider";
 import { persistVideoClip } from "@/lib/videoStorage";
 import {
@@ -57,10 +58,12 @@ export const submitScene = async (
   const provider = getVideoProvider(providerName);
   const estimatedCostCents = provider.estimateCostCents(scene.durationTargetSeconds);
 
+  const siblings = await listScenesForJob(job.id);
+  const position = siblings.findIndex(s => s.id === scene.id);
+
   // 무료 미리보기(mock)는 돈이 안 나가므로 예산과 비교하지 않는다. 예전엔 mock의
   // 가상 비용까지 비교해서, 예산이 거의 찬 작업에서는 공짜 미리보기조차 막혔다.
   if (providerName !== "mock" && job.maxBudgetCents != null) {
-    const siblings = await listScenesForJob(job.id);
     const remaining = remainingBudgetCents(
       job.maxBudgetCents,
       job.spentCents,
@@ -74,7 +77,7 @@ export const submitScene = async (
   const result = await provider.submit({
     sourceImageUrl: scene.sourceImageUrl,
     referenceImageUrls: scene.referenceImageUrls,
-    prompt: scene.prompt ?? "",
+    prompt: withSceneContinuity(scene.prompt ?? "", siblings[position - 1], siblings[position + 1]),
     durationSeconds: scene.durationTargetSeconds,
     aspectRatio: "9:16",
   });
