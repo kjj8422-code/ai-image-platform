@@ -268,33 +268,15 @@ export const listScenesForJob = async (jobId: string): Promise<VideoScene[]> => 
   return ((data ?? []) as SceneRow[]).map(toScene);
 };
 
-// 장면 순서를 바꾼다. scene_index가 (job_id, scene_index) 유니크 제약이 걸린
-// "진짜 자리"라서, 새 순서를 그대로 1..N으로 덮어쓰면 중간에 값이 겹치는 순간이
-// 생긴다(예: 1번을 2번 자리로 옮기는 동안 기존 2번이 아직 2번이면 충돌). 그래서
-// 먼저 전부 음수(임시) 값으로 옮겨 자리를 비운 뒤, 새 순서대로 1..N을 매긴다.
-export const reorderScenes = async (
-  jobId: string,
-  orderedSceneIds: string[],
-): Promise<VideoScene[]> => {
-  const supabaseAdmin = getSupabaseAdmin();
-
-  for (const [i, sceneId] of orderedSceneIds.entries()) {
-    const { error } = await supabaseAdmin
-      .from("video_scenes")
-      .update({ scene_index: -(i + 1) })
-      .eq("id", sceneId)
-      .eq("job_id", jobId);
-    if (error) throw error;
+// Renumber atomically in the database; never expose half-reordered scene indices.
+export const reorderScenes = async (jobId: string, orderedSceneIds: string[], expectedOrder: string[]): Promise<VideoScene[]> => {
+  const { error } = await getSupabaseAdmin().rpc("reorder_video_scenes", {
+    p_job_id: jobId, p_order: orderedSceneIds, p_expected_order: expectedOrder,
+  });
+  if (error) {
+    if (error.code === "PGRST202") throw new Error("순서 변경 기능의 데이터베이스 업데이트가 필요합니다. 관리자에게 알려 주세요.");
+    throw new Error(error.message);
   }
-  for (const [i, sceneId] of orderedSceneIds.entries()) {
-    const { error } = await supabaseAdmin
-      .from("video_scenes")
-      .update({ scene_index: i + 1, updated_at: new Date().toISOString() })
-      .eq("id", sceneId)
-      .eq("job_id", jobId);
-    if (error) throw error;
-  }
-
   return listScenesForJob(jobId);
 };
 
@@ -421,6 +403,9 @@ export const updateScene = async (
     narration: string;
     subtitle: string;
     prompt: string;
+    keyAction: string;
+    cameraMotion: string;
+    preserveNotes: string;
     sourceImageUrl: string;
     sfx: SfxCue;
   }>,
@@ -438,6 +423,9 @@ export const updateScene = async (
   if (patch.narration !== undefined) row.narration = patch.narration;
   if (patch.subtitle !== undefined) row.subtitle = patch.subtitle;
   if (patch.prompt !== undefined) row.prompt = patch.prompt;
+  if (patch.keyAction !== undefined) row.key_action = patch.keyAction;
+  if (patch.cameraMotion !== undefined) row.camera_motion = patch.cameraMotion;
+  if (patch.preserveNotes !== undefined) row.preserve_notes = patch.preserveNotes;
   if (patch.sourceImageUrl !== undefined) row.source_image_url = patch.sourceImageUrl;
   if (patch.sfx !== undefined) row.sfx = patch.sfx;
 

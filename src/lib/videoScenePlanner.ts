@@ -230,6 +230,12 @@ ${options.subtitleEnabled ? "- subtitle: 화면에 보일 자막. 나레이션�
 - "아름다운", "환상적인", "신비로운", "따뜻한" 같은 막연한 형용사를 쓰지 마라. 무슨 일이 벌어지는지, 무엇이 보이는지를 말해라.
 - 두루뭉술한 말 대신 사진에서 실제로 확인되는 구체적인 것을 넣어라("어떤 곳" 대신 실제 장소 특징, "많이" 대신 구체적 묘사).
 
+【장면 사이 연결】
+- keyAction은 300자, cameraMotion은 80자, preserveNotes는 100자 이내로 간결하게 작성한다.
+- 각 사진을 독립적으로 설명하지 말고 앞뒤 장면을 함께 설계한다. 사진에 맞는 범위에서 인물의 시선·이동 방향·조명과 카메라 이동 방향을 유지한다.
+- 넓은 구도→중간 구도→디테일처럼 의도적으로 연결하고, 장소가 달라지면 억지로 같은 공간처럼 변형하지 말고 명확한 전환으로 계획한다.
+- keyAction에는 장면의 시작과 마무리가 보이는 한 가지 동작, cameraMotion에는 구도와 하나의 카메라 이동을 적는다. 마지막 순간은 잠깐 안정시켜 다음 컷과 연결한다.
+
 【효과음(sfx)】 각 장면마다 다음 중 정확히 하나(괄호는 어떤 소리인지): ${aiSfxMenu()}. 장면 분위기 전환이나 강조가 필요 없으면 "none". 전부 "none"으로 채우지 말고, 톤이 바뀌거나 강조가 필요한 장면엔 실제로 어울리는 걸 골라라.
 
 장면 수는 ${options.useAllImages ? imageCount : `${MIN_SCENE_COUNT}~${MAX_SCENE_COUNT}`}개, imageOrder 배열 길이와 scenes 배열 길이는 반드시 같아야 한다.`;
@@ -300,7 +306,7 @@ export class ClaudeScenePlanner implements ScenePlanner {
       throw new Error(`쓸 만한 장면이 ${scenes.length}개뿐이라 이야기가 안 됩니다. 다시 시도해주세요.`);
     }
 
-    return { scenes };
+    return { scenes: options.keepOrder ? [...scenes].sort((a, b) => a.imageIndex - b.imageIndex) : scenes };
   }
 }
 

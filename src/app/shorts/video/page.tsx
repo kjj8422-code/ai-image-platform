@@ -9,6 +9,7 @@ import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import { BGM_GROUPS, SFX_GROUPS, type BgmMood, type SfxCue } from "@/lib/audioCatalog";
 import { AudioHelp } from "@/components/AudioHelp";
 import { AudioPreviewButton } from "@/components/AudioPreviewButton";
+import { moveItem, VISUAL_LIMITS } from "@/lib/videoSceneEditing";
 import { MOCK_PROVIDER_MODEL } from "@/lib/videoBudget";
 import type { SceneStyle } from "@/lib/characterShorts";
 import { STYLE_OPTIONS, BGM_MOOD_BY_STYLE } from "@/lib/shortsUiLabels";
@@ -45,6 +46,7 @@ type Job = {
   spentCents: number;
   error: string | null;
   narrationEnabled: boolean;
+  subtitleEnabled: boolean;
 };
 
 type Scene = {
@@ -55,6 +57,7 @@ type Scene = {
   subtitle: string | null;
   keyAction: string | null;
   cameraMotion: string | null;
+  preserveNotes: string | null;
   sfx: SfxCue;
   status: SceneStatus;
   videoUrl: string | null;
@@ -151,7 +154,7 @@ function VideoShortsPageInner() {
   const [previews, setPreviews] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
 
-  const [keepOrder, setKeepOrder] = useState(false);
+  const [keepOrder, setKeepOrder] = useState(true);
   const [useAllImages, setUseAllImages] = useState(false);
   const [style, setStyle] = useState<JobStyle>("comic");
   const [narrationEnabled, setNarrationEnabled] = useState(true);
@@ -168,6 +171,11 @@ function VideoShortsPageInner() {
   const [sceneActionError, setSceneActionError] = useState<Record<number, string>>({});
   const [busyScenes, setBusyScenes] = useState<Set<number>>(new Set());
 
+  const reorderLockRef = useRef(false);
+  const sceneRevisionRef = useRef(0);
+  const pendingSceneMutations = useRef(0);
+  const [reorderNotice, setReorderNotice] = useState("");
+  const [visualEdits, setVisualEdits] = useState<Record<string, Partial<Pick<Scene, "keyAction" | "cameraMotion" | "preserveNotes">>>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const idempotencyKeyRef = useRef<string>("");
 
@@ -186,7 +194,7 @@ function VideoShortsPageInner() {
   };
 
   const acceptFiles = (incoming: FileList | null) => {
-    if (!incoming) return;
+    if (!incoming || submitting || job) return;
     const images = Array.from(incoming).filter((f) => f.type.startsWith("image/"));
     if (images.length === 0) return;
     const next = [...files, ...images].slice(0, MAX_IMAGES);
@@ -198,7 +206,15 @@ function VideoShortsPageInner() {
     setScenes([]);
   };
 
+  const moveUpload = (index: number, direction: -1 | 1) => {
+    if (submitting || job) return;
+    setFiles(prev => moveItem(prev, index, direction));
+    setPreviews(prev => moveItem(prev, index, direction));
+    setKeepOrder(true);
+  };
+
   const removeAt = (index: number) => {
+    if (submitting || job) return;
     const next = files.filter((_, i) => i !== index);
     previews.forEach((url) => URL.revokeObjectURL(url));
     setFiles(next);
@@ -247,10 +263,13 @@ function VideoShortsPageInner() {
     if (!stillMoving) return;
 
     const timer = setInterval(async () => {
+      if (reorderLockRef.current || pendingSceneMutations.current) return;
+      const revision = sceneRevisionRef.current;
       try {
         const res = await authedFetch(`/api/shorts/video/jobs/${job.id}`);
         if (!res.ok) return;
         const data = await readJson(res);
+        if (reorderLockRef.current || pendingSceneMutations.current || revision !== sceneRevisionRef.current) return;
         setJob(data.job);
         setScenes(data.scenes);
       } catch {
@@ -336,7 +355,7 @@ function VideoShortsPageInner() {
     provider: "mock" | "real",
     options: { silent?: boolean } = {},
   ) => {
-    if (!job) return;
+    if (!job || reorderLockRef.current) return;
     const regenerate = scene.status === "ready" || scene.status === "selected";
     if (
       provider === "real" &&
@@ -347,20 +366,27 @@ function VideoShortsPageInner() {
     ) {
       return;
     }
+    if (hasSceneEdits(scene)) {
+      const saved = await saveSceneEdit(scene);
+      if (!saved) return false;
+      scene = saved;
+    }
     setBusyScenes((prev) => new Set(prev).add(scene.sceneIndex));
     setSceneActionError((prev) => ({ ...prev, [scene.sceneIndex]: "" }));
+    pendingSceneMutations.current += 1;
+    sceneRevisionRef.current += 1;
     try {
       const res = await authedFetch(
         `/api/shorts/video/jobs/${job.id}/scenes/${scene.sceneIndex}/generate`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ regenerate, provider }),
+          body: JSON.stringify({ regenerate, provider, sceneId: scene.id }),
         },
       );
       const data = await readJson(res);
       if (!res.ok) throw new Error(data.error ?? "장면 생성 요청에 실패했습니다.");
-      setScenes((prev) => prev.map((s) => (s.sceneIndex === scene.sceneIndex ? data.scene : s)));
+      setScenes((prev) => prev.map((s) => (s.id === scene.id ? data.scene : s)));
       return true;
     } catch (err) {
       setSceneActionError((prev) => ({
@@ -369,6 +395,8 @@ function VideoShortsPageInner() {
       }));
       return false;
     } finally {
+      pendingSceneMutations.current -= 1;
+      sceneRevisionRef.current += 1;
       setBusyScenes((prev) => {
         const next = new Set(prev);
         next.delete(scene.sceneIndex);
@@ -383,7 +411,7 @@ function VideoShortsPageInner() {
   // "2차: 진짜 최종 생성" — 전체 장면을 실제 공급자로(이미 만든 미리보기는
   // 재생성 취급). 한 번만 확인받고 나머지는 조용히 진행한다.
   const batchGenerate = async (provider: "mock" | "real") => {
-    if (!job) return;
+    if (!job || reorderLockRef.current) return;
     const targets =
       provider === "mock"
         ? scenes.filter((s) => s.status === "queued" || s.status === "failed")
@@ -415,67 +443,78 @@ function VideoShortsPageInner() {
   const [reorderBusy, setReorderBusy] = useState(false);
 
   const moveScene = async (currentIndex: number, direction: -1 | 1) => {
-    if (!job) return;
+    if (!job || reorderLockRef.current || pendingSceneMutations.current || reorderLocked) return;
     const otherIndex = currentIndex + direction;
     if (otherIndex < 0 || otherIndex >= scenes.length) return;
     const order = scenes.map((s) => s.id);
     [order[currentIndex], order[otherIndex]] = [order[otherIndex], order[currentIndex]];
 
+    reorderLockRef.current = true;
+    sceneRevisionRef.current += 1;
     setReorderBusy(true);
+    setReorderNotice("순서를 저장하는 중…");
     setErrorMessage("");
     try {
       const res = await authedFetch(`/api/shorts/video/jobs/${job.id}/scenes/reorder`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order }),
+        body: JSON.stringify({ order, expectedOrder: scenes.map(s => s.id) }),
       });
       const data = await readJson(res);
       if (!res.ok) throw new Error(data.error ?? "순서를 바꾸지 못했습니다.");
       setScenes(data.scenes);
-      // 장면 번호가 다시 매겨지므로, 번호로 연결해둔 임시 상태는 비운다
-      // (엉뚱한 장면에 붙는 걸 막기 위해).
-      setEditedText({});
+      // Drafts remain keyed by immutable scene ID while display indices change.
+      setReorderNotice("순서가 저장되었습니다. 사진·설명·대본이 함께 이동합니다.");
       setSceneActionError({});
     } catch (err) {
+      setReorderNotice("");
       setErrorMessage(err instanceof Error ? err.message : "순서 변경 중 오류가 발생했습니다.");
     } finally {
+      sceneRevisionRef.current += 1;
+      reorderLockRef.current = false;
       setReorderBusy(false);
     }
   };
 
   // 아직 안 만들었거나(대기) 실패한 장면은 생성 전에 나레이션/자막을 직접
   // 고칠 수 있다 — 비용이 안 드는 작업이라 재생성과 분리해뒀다.
-  const [editedText, setEditedText] = useState<Record<number, string>>({});
+  const [editedText, setEditedText] = useState<Record<string, string>>({});
   const [savingScenes, setSavingScenes] = useState<Set<number>>(new Set());
 
   const saveSceneEdit = async (scene: Scene) => {
-    if (!job) return;
-    const narration = editedText[scene.sceneIndex] ?? scene.narration ?? "";
+    if (!job || reorderLockRef.current) return;
+    const narration = editedText[scene.id] ?? scene.narration ?? "";
     setSavingScenes((prev) => new Set(prev).add(scene.sceneIndex));
     setSceneActionError((prev) => ({ ...prev, [scene.sceneIndex]: "" }));
+    pendingSceneMutations.current += 1;
+    sceneRevisionRef.current += 1;
     try {
       const res = await authedFetch(
         `/api/shorts/video/jobs/${job.id}/scenes/${scene.sceneIndex}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ narration, subtitle: narration }),
+          body: JSON.stringify({ sceneId: scene.id, narration, ...(job.subtitleEnabled ? { subtitle: narration } : {}), ...visualEdits[scene.id] }),
         },
       );
       const data = await readJson(res);
       if (!res.ok) throw new Error(data.error ?? "수정에 실패했습니다.");
-      setScenes((prev) => prev.map((s) => (s.sceneIndex === scene.sceneIndex ? data.scene : s)));
+      setScenes((prev) => prev.map((s) => (s.id === scene.id ? data.scene : s)));
+      setVisualEdits(prev => { const next = { ...prev }; delete next[scene.id]; return next; });
       setEditedText((prev) => {
         const next = { ...prev };
-        delete next[scene.sceneIndex];
+        delete next[scene.id];
         return next;
       });
+      return data.scene as Scene;
     } catch (err) {
       setSceneActionError((prev) => ({
         ...prev,
         [scene.sceneIndex]: err instanceof Error ? err.message : "알 수 없는 오류",
       }));
     } finally {
+      pendingSceneMutations.current -= 1;
+      sceneRevisionRef.current += 1;
       setSavingScenes((prev) => {
         const next = new Set(prev);
         next.delete(scene.sceneIndex);
@@ -485,25 +524,32 @@ function VideoShortsPageInner() {
   };
 
   const saveSceneSfx = async (scene: Scene, sfx: SfxCue) => {
-    if (!job) return;
+    if (!job || reorderLockRef.current) return;
+    setSavingScenes(prev => new Set(prev).add(scene.sceneIndex));
     setSceneActionError((prev) => ({ ...prev, [scene.sceneIndex]: "" }));
+    pendingSceneMutations.current += 1;
+    sceneRevisionRef.current += 1;
     try {
       const res = await authedFetch(
         `/api/shorts/video/jobs/${job.id}/scenes/${scene.sceneIndex}`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sfx }),
+          body: JSON.stringify({ sfx, sceneId: scene.id }),
         },
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "효과음 변경에 실패했습니다.");
-      setScenes((prev) => prev.map((s) => (s.sceneIndex === scene.sceneIndex ? data.scene : s)));
+      setScenes((prev) => prev.map((s) => (s.id === scene.id ? data.scene : s)));
     } catch (err) {
       setSceneActionError((prev) => ({
         ...prev,
         [scene.sceneIndex]: err instanceof Error ? err.message : "알 수 없는 오류",
       }));
+    } finally {
+      pendingSceneMutations.current -= 1;
+      sceneRevisionRef.current += 1;
+      setSavingScenes(prev => { const next = new Set(prev); next.delete(scene.sceneIndex); return next; });
     }
   };
 
@@ -513,20 +559,22 @@ function VideoShortsPageInner() {
   const [rewritingScenes, setRewritingScenes] = useState<Set<number>>(new Set());
 
   const rewriteScene = async (scene: Scene) => {
-    if (!job) return;
+    if (!job || reorderLockRef.current) return;
     setRewritingScenes((prev) => new Set(prev).add(scene.sceneIndex));
     setSceneActionError((prev) => ({ ...prev, [scene.sceneIndex]: "" }));
+    pendingSceneMutations.current += 1;
+    sceneRevisionRef.current += 1;
     try {
       const res = await authedFetch(
         `/api/shorts/video/jobs/${job.id}/scenes/${scene.sceneIndex}/rewrite`,
-        { method: "POST" },
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sceneId: scene.id }) },
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "다른 대본을 받지 못했습니다.");
-      setScenes((prev) => prev.map((s) => (s.sceneIndex === scene.sceneIndex ? data.scene : s)));
+      setScenes((prev) => prev.map((s) => (s.id === scene.id ? data.scene : s)));
       setEditedText((prev) => {
         const next = { ...prev };
-        delete next[scene.sceneIndex];
+        delete next[scene.id];
         return next;
       });
     } catch (err) {
@@ -535,6 +583,8 @@ function VideoShortsPageInner() {
         [scene.sceneIndex]: err instanceof Error ? err.message : "알 수 없는 오류",
       }));
     } finally {
+      pendingSceneMutations.current -= 1;
+      sceneRevisionRef.current += 1;
       setRewritingScenes((prev) => {
         const next = new Set(prev);
         next.delete(scene.sceneIndex);
@@ -543,6 +593,11 @@ function VideoShortsPageInner() {
     }
   };
 
+  const hasSceneEdits = (scene: Scene) =>
+    (editedText[scene.id] !== undefined && editedText[scene.id] !== (scene.narration ?? "")) ||
+    Object.entries(visualEdits[scene.id] ?? {}).some(([key, value]) => value !== (scene[key as "keyAction" | "cameraMotion" | "preserveNotes"] ?? ""));
+  const hasUnsavedEdits = scenes.some(hasSceneEdits);
+  const reorderLocked = reorderBusy || Boolean(batchBusy) || busyScenes.size > 0 || savingScenes.size > 0 || rewritingScenes.size > 0 || scenes.some(s => s.status === "generating" || isRetryingSave(s));
   const canSubmit = files.length >= MIN_IMAGES && !submitting;
 
   // 모든 장면이 길이가 같아(SCENE_DURATION_SECONDS) job.estimatedCostCents를
@@ -559,7 +614,7 @@ function VideoShortsPageInner() {
   // 같은 shorts-project.json 구조 + scenes[].videoUrl). 이 파이프라인은 나레이션
   // 실측 길이로 장면 타이밍을 맞추므로, 나레이션을 껐던 작업은 지원하지 않는다.
   const projectUrl = useMemo(() => {
-    if (!job || !job.narrationEnabled || !allScenesReady) return "";
+    if (!job || !job.narrationEnabled || !allScenesReady || hasUnsavedEdits) return "";
     const project = {
       thumbnailCopy: "",
       bgmMood,
@@ -575,7 +630,7 @@ function VideoShortsPageInner() {
     const json = JSON.stringify(project, null, 2);
     return `data:application/json;charset=utf-8,${encodeURIComponent(json)}`;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job?.id, job?.narrationEnabled, allScenesReady, scenes, bgmMood]);
+  }, [job?.id, job?.narrationEnabled, allScenesReady, scenes, bgmMood, hasUnsavedEdits]);
 
   if (userLoading) {
     return (
@@ -625,7 +680,7 @@ function VideoShortsPageInner() {
         >
           <p className="text-sm text-zinc-600 dark:text-zinc-400">여기로 이미지를 끌어다 놓거나 눌러서 선택하세요</p>
           <p className="text-xs text-zinc-400 dark:text-zinc-500">현재 {files.length}장 선택됨 (최대 {MAX_IMAGES}장)</p>
-          <input ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={(e) => acceptFiles(e.target.files)} />
+          <input disabled={submitting || Boolean(job)} ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={(e) => acceptFiles(e.target.files)} />
         </div>
 
         {previews.length > 0 && (
@@ -634,8 +689,12 @@ function VideoShortsPageInner() {
               <div key={url} className="relative">
                 {/* eslint-disable-next-line @next/next/no-img-element -- 로컬 objectURL 미리보기 */}
                 <img src={url} alt={`${index + 1}번째 이미지`} className="aspect-[9/16] w-full rounded-lg object-cover" />
+                <div className="mt-1 flex justify-between gap-1">
+                  <button type="button" disabled={submitting || Boolean(job) || index === 0} onClick={() => moveUpload(index, -1)} className="rounded border px-2 py-1 text-xs disabled:opacity-30" aria-label={'사진 ' + (index + 1) + ' 앞으로'}>← 앞</button>
+                  <button type="button" disabled={submitting || Boolean(job) || index === files.length - 1} onClick={() => moveUpload(index, 1)} className="rounded border px-2 py-1 text-xs disabled:opacity-30" aria-label={'사진 ' + (index + 1) + ' 뒤로'}>뒤 →</button>
+                </div>
                 <span className="absolute left-1 top-1 rounded-full bg-black/70 px-1.5 text-[10px] font-medium text-white">{index + 1}</span>
-                <button type="button" onClick={(e) => { e.stopPropagation(); removeAt(index); }} className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 text-[10px] font-medium text-white hover:bg-black">✕</button>
+                <button type="button" disabled={submitting || Boolean(job)} onClick={(e) => { e.stopPropagation(); removeAt(index); }} className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 text-[10px] font-medium text-white hover:bg-black">✕</button>
               </div>
             ))}
           </div>
@@ -702,7 +761,7 @@ function VideoShortsPageInner() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={batchBusy !== null}
+              disabled={reorderLocked}
               onClick={() => void batchGenerate("mock")}
               className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
             >
@@ -710,7 +769,7 @@ function VideoShortsPageInner() {
             </button>
             <button
               type="button"
-              disabled={batchBusy !== null || scenes.length === 0}
+              disabled={reorderLocked || scenes.length === 0}
               onClick={() => void batchGenerate("real")}
               className="rounded-full bg-black px-4 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-black"
             >
@@ -720,22 +779,28 @@ function VideoShortsPageInner() {
             </button>
           </div>
 
+          <p className="text-xs text-zinc-500">위·아래 버튼으로 사진·설명·대본을 함께 이동합니다. 영상 생성·저장 중에는 순서 변경을 잠시 막습니다. 저장되지 않은 수정은 생성 전에 자동 저장됩니다.</p>
+          <p className="text-xs text-zinc-500">장면 연결: 현재 순서를 기준으로 앞뒤 동작과 카메라 방향을 생성 지시에 반영합니다. 서로 다른 사진의 완벽한 연속 촬영 효과를 보장하지는 않습니다.</p>
+          <p role="status" className="text-sm text-blue-600">{reorderNotice}</p>
+          {hasUnsavedEdits && <p className="text-xs text-amber-700">수정한 설명·대본을 저장하면 최종 프로젝트에 반영됩니다.</p>}
           <ol className="flex flex-col gap-3">
             {scenes.map((scene, index) => {
               const isBusy = busyScenes.has(scene.sceneIndex);
               const isSaving = savingScenes.has(scene.sceneIndex);
-              const draft = editedText[scene.sceneIndex] ?? scene.narration ?? "";
-              const dirty = draft !== (scene.narration ?? "");
+              const draft = editedText[scene.id] ?? scene.narration ?? "";
+              const dirty = hasSceneEdits(scene);
+              const visual = { ...scene, ...visualEdits[scene.id] };
+              const visualLocked = reorderBusy || Boolean(batchBusy) || rewritingScenes.has(scene.sceneIndex) || isBusy || isSaving || scene.status === "generating" || isRetryingSave(scene);
               const needsFirstGenerate = scene.status === "queued" || scene.status === "failed";
               return (
                 <li key={scene.id} className="flex gap-3 rounded-lg border border-zinc-200 p-2 dark:border-zinc-800">
                   <div className="flex shrink-0 flex-col items-center gap-1">
                     <button
                       type="button"
-                      disabled={reorderBusy || index === 0}
+                      disabled={reorderLocked || index === 0}
                       onClick={() => void moveScene(index, -1)}
                       className="rounded border border-zinc-300 px-1.5 text-xs leading-5 hover:bg-zinc-100 disabled:opacity-30 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                      title="위로"
+                      title="위로" aria-label={`장면 ${scene.sceneIndex} 위로 이동`}
                     >
                       ▲
                     </button>
@@ -747,10 +812,10 @@ function VideoShortsPageInner() {
                     )}
                     <button
                       type="button"
-                      disabled={reorderBusy || index === scenes.length - 1}
+                      disabled={reorderLocked || index === scenes.length - 1}
                       onClick={() => void moveScene(index, 1)}
                       className="rounded border border-zinc-300 px-1.5 text-xs leading-5 hover:bg-zinc-100 disabled:opacity-30 dark:border-zinc-700 dark:hover:bg-zinc-900"
-                      title="아래로"
+                      title="아래로" aria-label={`장면 ${scene.sceneIndex} 아래로 이동`}
                     >
                       ▼
                     </button>
@@ -762,20 +827,38 @@ function VideoShortsPageInner() {
                         {scene.status === "ready" && (isMockScene(scene) ? " (미리보기)" : " (실제 생성)")}
                       </span>
                     </div>
+                    <label htmlFor={'visual-' + scene.id} className="mt-2 block font-medium">원하는 장면 설명 · 화면과 동작</label>
+                    <textarea id={'visual-' + scene.id} value={visual.keyAction ?? ""} disabled={visualLocked}
+                      onChange={e => setVisualEdits(prev => ({ ...prev, [scene.id]: { ...prev[scene.id], keyAction: e.target.value } }))}
+                      rows={3} maxLength={VISUAL_LIMITS.keyAction} placeholder="예: 인물이 왼쪽에서 오른쪽으로 천천히 걸으며 카메라를 바라본다."
+                      className="mt-1 w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700" />
+                    <label htmlFor={'camera-' + scene.id} className="mt-1 block text-xs">구도·카메라 움직임</label>
+                    <input id={'camera-' + scene.id} value={visual.cameraMotion ?? ""} disabled={visualLocked} maxLength={VISUAL_LIMITS.cameraMotion}
+                      onChange={e => setVisualEdits(prev => ({ ...prev, [scene.id]: { ...prev[scene.id], cameraMotion: e.target.value } }))}
+                      placeholder="예: 인물 상반신, 천천히 따라가기" className="mt-1 w-full rounded border bg-transparent px-2 py-1 dark:border-zinc-700" />
+                    <label htmlFor={'preserve-' + scene.id} className="mt-1 block text-xs">계속 유지할 인물·의상·소품</label>
+                    <input id={'preserve-' + scene.id} value={visual.preserveNotes ?? ""} disabled={visualLocked} maxLength={VISUAL_LIMITS.preserveNotes}
+                      onChange={e => setVisualEdits(prev => ({ ...prev, [scene.id]: { ...prev[scene.id], preserveNotes: e.target.value } }))}
+                      className="mt-1 w-full rounded border bg-transparent px-2 py-1 dark:border-zinc-700" />
+                    {scene.videoUrl && <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">장면 설명 변경은 다음 생성부터 적용됩니다. 기존 영상은 자동으로 다시 만들지 않습니다.</p>}
+                    <label htmlFor={'narration-' + scene.id} className="mt-3 block font-medium">나레이션 · 대본 (읽어 줄 말)</label>
                     {/* 나레이션은 영상 클립과 분리된 데이터라 장면 상태와 무관하게 언제나 고칠 수 있다. */}
                     <textarea
+                      id={`narration-${scene.id}`}
+                      disabled={reorderBusy || Boolean(batchBusy) || isBusy || isSaving || rewritingScenes.has(scene.sceneIndex)}
                       value={draft}
                       onChange={(e) =>
-                        setEditedText((prev) => ({ ...prev, [scene.sceneIndex]: e.target.value }))
+                        setEditedText((prev) => ({ ...prev, [scene.id]: e.target.value }))
                       }
                       rows={2}
                       placeholder="나레이션/대사"
                       className="mt-0.5 w-full resize-y rounded border border-zinc-300 bg-transparent px-2 py-1 text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
                     />
-                    {scene.keyAction && <p className="mt-0.5 text-xs text-zinc-400">동작: {scene.keyAction}</p>}
+
                     <div className="mt-1 flex items-center gap-1.5">
                       <label className="text-xs text-zinc-400">효과음</label>
                       <select
+                        disabled={reorderBusy || Boolean(batchBusy) || isBusy || isSaving || rewritingScenes.has(scene.sceneIndex)}
                         value={scene.sfx}
                         onChange={(e) => void saveSceneSfx(scene, e.target.value as SfxCue)}
                         className="rounded border border-zinc-300 bg-transparent px-1.5 py-0.5 text-xs dark:border-zinc-700"
@@ -794,15 +877,15 @@ function VideoShortsPageInner() {
                     )}
                     <div className="mt-1 flex flex-wrap gap-2">
                       {dirty && (
-                        <button type="button" disabled={isSaving} onClick={() => void saveSceneEdit(scene)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
-                          {isSaving ? "저장 중..." : "대사 저장"}
+                        <button type="button" disabled={isSaving || reorderBusy || visualLocked} onClick={() => void saveSceneEdit(scene)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
+                          {isSaving ? "저장 중..." : "설명·대본 저장"}
                         </button>
                       )}
-                      <button type="button" disabled={rewritingScenes.has(scene.sceneIndex)} onClick={() => void rewriteScene(scene)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
+                      <button type="button" disabled={rewritingScenes.has(scene.sceneIndex) || reorderBusy || dirty || isSaving || isBusy || Boolean(batchBusy)} onClick={() => void rewriteScene(scene)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
                         {rewritingScenes.has(scene.sceneIndex) ? "다른 대본 받는 중..." : "다른 대본 (소액 비용)"}
                       </button>
                       {needsFirstGenerate && (
-                        <button type="button" disabled={isBusy} onClick={() => void generateScene(scene, "mock")} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
+                        <button type="button" disabled={isBusy || reorderBusy || isSaving || Boolean(batchBusy)} onClick={() => void generateScene(scene, "mock")} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
                           {isBusy ? "요청 중..." : "미리보기 생성 ($0.00)"}
                         </button>
                       )}
@@ -810,11 +893,11 @@ function VideoShortsPageInner() {
                         <>
                           <a href={scene.videoUrl ?? "#"} download className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900">다운로드</a>
                           {isMockScene(scene) ? (
-                            <button type="button" disabled={isBusy} onClick={() => void generateScene(scene, "real")} className="rounded-full bg-black px-3 py-1 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-black">
+                            <button type="button" disabled={isBusy || reorderBusy || isSaving || Boolean(batchBusy) || rewritingScenes.has(scene.sceneIndex)} onClick={() => void generateScene(scene, "real")} className="rounded-full bg-black px-3 py-1 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-black">
                               진짜로 생성 (유료 {money(perSceneCostCents)})
                             </button>
                           ) : (
-                            <button type="button" disabled={isBusy} onClick={() => void generateScene(scene, "real")} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
+                            <button type="button" disabled={isBusy || reorderBusy || isSaving || Boolean(batchBusy) || rewritingScenes.has(scene.sceneIndex)} onClick={() => void generateScene(scene, "real")} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
                               다시 만들기 (재과금 {money(perSceneCostCents)})
                             </button>
                           )}

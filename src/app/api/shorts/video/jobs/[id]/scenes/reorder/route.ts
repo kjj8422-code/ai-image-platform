@@ -1,3 +1,4 @@
+import { isExactSceneOrder } from "@/lib/videoSceneEditing";
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/requireUser";
 import { getOwnedJob, listScenesForJob, reorderScenes } from "@/lib/videoJobs";
@@ -32,9 +33,8 @@ export async function PATCH(
     }
 
     const current = await listScenesForJob(job.id);
-    const currentIds = new Set(current.map((s) => s.id));
-    const sameSet =
-      order.length === current.length && order.every((id) => currentIds.has(id));
+    const currentIds = current.map(s => s.id);
+    const sameSet = isExactSceneOrder(currentIds, order);
     if (!sameSet) {
       return NextResponse.json(
         { error: "order가 이 작업의 장면 목록과 정확히 일치하지 않습니다." },
@@ -42,7 +42,14 @@ export async function PATCH(
       );
     }
 
-    const scenes = await reorderScenes(job.id, order);
+    if (!isExactSceneOrder(currentIds, body.expectedOrder) ||
+        !currentIds.every((id, i) => id === body.expectedOrder[i])) {
+      return NextResponse.json({ error: "장면 순서가 변경되었습니다. 새로고침 후 다시 시도해 주세요." }, { status: 409 });
+    }
+    if (current.some(scene => scene.status === "generating")) {
+      return NextResponse.json({ error: "영상 생성이 끝난 뒤 순서를 바꿔 주세요." }, { status: 409 });
+    }
+    const scenes = await reorderScenes(job.id, order, body.expectedOrder);
     return NextResponse.json({ scenes });
   } catch (err) {
     console.error("영상 장면 순서 변경 오류:", err);
