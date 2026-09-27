@@ -9,6 +9,8 @@ import { useSupabaseUser } from "@/lib/useSupabaseUser";
 import { BGM_GROUPS, SFX_GROUPS, type BgmMood, type SfxCue } from "@/lib/audioCatalog";
 import { AudioHelp } from "@/components/AudioHelp";
 import { AudioPreviewButton } from "@/components/AudioPreviewButton";
+import { validClipFile, UPLOADED_CLIP_MODEL } from "@/lib/sceneClipUpload";
+import { validateBrowserClip } from "@/lib/validateBrowserClip";
 import { moveItem, VISUAL_LIMITS } from "@/lib/videoSceneEditing";
 import { MOCK_PROVIDER_MODEL } from "@/lib/videoBudget";
 import type { SceneStyle } from "@/lib/characterShorts";
@@ -415,11 +417,11 @@ function VideoShortsPageInner() {
     const targets =
       provider === "mock"
         ? scenes.filter((s) => s.status === "queued" || s.status === "failed")
-        : scenes.filter((s) => s.status !== "generating");
+        : scenes.filter((s) => s.status !== "generating" && s.providerModel !== UPLOADED_CLIP_MODEL);
     if (targets.length === 0) return;
 
     if (provider === "real") {
-      const estimate = money(job.estimatedCostCents);
+      const estimate = money(perSceneCostCents == null ? null : targets.length * perSceneCostCents);
       if (
         !confirm(
           `장면 ${targets.length}개를 실제로 생성합니다. 예상 총 비용 약 ${estimate}. 계속할까요?`,
@@ -593,11 +595,47 @@ function VideoShortsPageInner() {
     }
   };
 
+  const [uploadingScene, setUploadingScene] = useState<string | null>(null);
+  const [uploadNotice, setUploadNotice] = useState("");
+  const uploadSceneClip = async (scene: Scene, file: File) => {
+    if (!job || reorderLockRef.current || pendingSceneMutations.current || reorderLocked) return;
+    if (!validClipFile(file.name, file.size)) { setSceneActionError(prev => ({...prev,[scene.sceneIndex]:"50MB 이하 MP4 파일을 선택하세요."})); return; }
+    if (scene.videoUrl && !confirm("이 장면을 선택한 영상으로 교체할까요? 설명과 대본은 유지됩니다.")) return;
+    setUploadingScene(scene.id);
+    setUploadNotice("영상 파일 확인 중…");
+    setSceneActionError(prev => ({...prev,[scene.sceneIndex]:""}));
+    pendingSceneMutations.current += 1;
+    sceneRevisionRef.current += 1;
+    try {
+      await validateBrowserClip(file);
+      const endpoint = `/api/shorts/video/jobs/${job.id}/scenes/${scene.sceneIndex}/clip`;
+      const signedResponse = await authedFetch(endpoint, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"sign",sceneId:scene.id,name:file.name,size:file.size})});
+      const signed = await readJson(signedResponse);
+      if (!signedResponse.ok) throw new Error(signed.error ?? "업로드 준비에 실패했습니다.");
+      setUploadNotice("영상을 업로드하고 있습니다. 창을 닫지 마세요…");
+      const { error } = await supabase.storage.from("gallery").uploadToSignedUrl(signed.path,signed.token,file,{contentType:"video/mp4",upsert:false});
+      if (error) throw error;
+      setUploadNotice("장면에 연결하는 중…");
+      const response = await authedFetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"complete",sceneId:scene.id,path:signed.path,version:signed.version})});
+      const result = await readJson(response);
+      if (!response.ok) throw new Error(result.error ?? "영상 연결에 실패했습니다.");
+      setScenes(prev=>prev.map(item=>item.id===scene.id?result.scene:item));
+      setUploadNotice(`장면 ${scene.sceneIndex}에 영상을 연결했습니다. AI 생성 비용은 발생하지 않습니다.`);
+    } catch(err) {
+      setUploadNotice("");
+      setSceneActionError(prev=>({...prev,[scene.sceneIndex]:err instanceof Error?err.message:"업로드 실패"}));
+    } finally {
+      pendingSceneMutations.current -= 1;
+      sceneRevisionRef.current += 1;
+      setUploadingScene(null);
+    }
+  };
+
   const hasSceneEdits = (scene: Scene) =>
     (editedText[scene.id] !== undefined && editedText[scene.id] !== (scene.narration ?? "")) ||
     Object.entries(visualEdits[scene.id] ?? {}).some(([key, value]) => value !== (scene[key as "keyAction" | "cameraMotion" | "preserveNotes"] ?? ""));
   const hasUnsavedEdits = scenes.some(hasSceneEdits);
-  const reorderLocked = reorderBusy || Boolean(batchBusy) || busyScenes.size > 0 || savingScenes.size > 0 || rewritingScenes.size > 0 || scenes.some(s => s.status === "generating" || isRetryingSave(s));
+  const reorderLocked = Boolean(uploadingScene) || reorderBusy || Boolean(batchBusy) || busyScenes.size > 0 || savingScenes.size > 0 || rewritingScenes.size > 0 || scenes.some(s => s.status === "generating" || isRetryingSave(s));
   const canSubmit = files.length >= MIN_IMAGES && !submitting;
 
   // 모든 장면이 길이가 같아(SCENE_DURATION_SECONDS) job.estimatedCostCents를
@@ -769,23 +807,25 @@ function VideoShortsPageInner() {
             </button>
             <button
               type="button"
-              disabled={reorderLocked || scenes.length === 0}
+              disabled={reorderLocked || !scenes.some(s => s.providerModel !== UPLOADED_CLIP_MODEL)}
               onClick={() => void batchGenerate("real")}
               className="rounded-full bg-black px-4 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-white dark:text-black"
             >
               {batchBusy === "real"
                 ? "실제 생성 중..."
-                : `2차: 전체 진짜 최종 생성 (${money(job.estimatedCostCents)})`}
+                : `2차: 업로드 제외 AI 생성 (${money(perSceneCostCents == null ? null : scenes.filter(s => s.providerModel !== UPLOADED_CLIP_MODEL && s.status !== "generating").length * perSceneCostCents)})`}
             </button>
           </div>
 
           <p className="text-xs text-zinc-500">위·아래 버튼으로 사진·설명·대본을 함께 이동합니다. 영상 생성·저장 중에는 순서 변경을 잠시 막습니다. 저장되지 않은 수정은 생성 전에 자동 저장됩니다.</p>
           <p className="text-xs text-zinc-500">장면 연결: 현재 순서를 기준으로 앞뒤 동작과 카메라 방향을 생성 지시에 반영합니다. 서로 다른 사진의 완벽한 연속 촬영 효과를 보장하지는 않습니다.</p>
           <p role="status" className="text-sm text-blue-600">{reorderNotice}</p>
+          <p className="text-xs text-zinc-500">Higgsfield에서 만든 MP4를 각 장면에 넣을 수 있습니다. 업로드한 장면은 전체 AI 생성에서 제외됩니다. 업로드 자체는 AI 생성료가 없으며 저장소 사용량은 늘어납니다.</p>
+          <p role="status" className="text-sm text-blue-600">{uploadNotice}</p>
           {hasUnsavedEdits && <p className="text-xs text-amber-700">수정한 설명·대본을 저장하면 최종 프로젝트에 반영됩니다.</p>}
           <ol className="flex flex-col gap-3">
             {scenes.map((scene, index) => {
-              const isBusy = busyScenes.has(scene.sceneIndex);
+              const isBusy = busyScenes.has(scene.sceneIndex) || Boolean(uploadingScene);
               const isSaving = savingScenes.has(scene.sceneIndex);
               const draft = editedText[scene.id] ?? scene.narration ?? "";
               const dirty = hasSceneEdits(scene);
@@ -875,6 +915,12 @@ function VideoShortsPageInner() {
                     {sceneActionError[scene.sceneIndex] && (
                       <p className="mt-0.5 text-xs text-red-600 dark:text-red-400">{sceneActionError[scene.sceneIndex]}</p>
                     )}
+                    <div className="my-2 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-950/30">
+                      <label className="block text-xs font-semibold" htmlFor={'clip-' + scene.id}>Higgsfield·내 영상 MP4 넣기</label>
+                      <input id={'clip-' + scene.id} type="file" accept="video/mp4,.mp4" disabled={reorderLocked} className="mt-2 block w-full text-xs disabled:opacity-50" onChange={e=>{const file=e.target.files?.[0];e.target.value="";if(file) void uploadSceneClip(scene,file);}} />
+                      <p className="mt-1 text-xs text-zinc-500">MP4 · 최대 50MB · 세로 9:16 권장. 원본 영상 소리는 최종 합성에서 제외되고 설정한 나레이션·음악을 사용합니다.</p>
+                      {scene.providerModel === UPLOADED_CLIP_MODEL && <p className="mt-1 text-xs text-blue-700">업로드한 영상 사용 중 · AI 생성료 $0</p>}
+                    </div>
                     <div className="mt-1 flex flex-wrap gap-2">
                       {dirty && (
                         <button type="button" disabled={isSaving || reorderBusy || visualLocked} onClick={() => void saveSceneEdit(scene)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900">
