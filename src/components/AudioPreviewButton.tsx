@@ -104,7 +104,7 @@ export const AudioPreviewButton = ({ kind, name }: Props) => {
         if (current?.audio === audio) stopCurrent();
       };
       current = { key, audio };
-      if (file.kind === "bgm") {
+      if (file.kind === "bgm" || file.kind === "library") {
         current.timer = setTimeout(() => {
           if (current?.audio === audio) stopCurrent();
         }, BGM_PREVIEW_SECONDS * 1000);

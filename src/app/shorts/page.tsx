@@ -9,6 +9,8 @@ import { AI_BGM_MOODS, AI_SFX_CUES, BGM_GROUPS, SFX_GROUPS } from "@/lib/audioCa
 import { isAudioBed, type SfxTiming } from "@/lib/audioDirection";
 import { AudioHelp } from "@/components/AudioHelp";
 import { AudioPreviewButton } from "@/components/AudioPreviewButton";
+import { MusicLibraryPicker } from "@/components/MusicLibraryPicker";
+import musicLibrary from "@/lib/musicLibrary.json";
 
 type Step = "idle" | "uploading" | "analyzing" | "composing" | "done" | "error";
 
@@ -90,6 +92,7 @@ export default function ShortsPage() {
   const { user, loading: userLoading } = useSupabaseUser();
 
   const [narrationVoice, setNarrationVoice] = useState("auto");
+  const [musicTrack, setMusicTrack] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -121,9 +124,9 @@ export default function ShortsPage() {
   // URL로 바로 만든다 — objectURL과 달리 나중에 해제할 것이 남지 않는다.
   const projectUrl = useMemo(() => {
     if (!storyboard) return "";
-    const json = JSON.stringify({ ...storyboard, source: "web-upload", narrationVoice }, null, 2);
+    const json = JSON.stringify({ ...storyboard, bgmMood: musicTrack || storyboard.bgmMood, source: "web-upload", narrationVoice }, null, 2);
     return `data:application/json;charset=utf-8,${encodeURIComponent(json)}`;
-  }, [storyboard, narrationVoice]);
+  }, [storyboard, narrationVoice, musicTrack]);
 
   const authedFetch = async (input: string, init: RequestInit = {}) => {
     const {
@@ -243,6 +246,7 @@ export default function ShortsPage() {
   };
 
   const changeBgmMood = (mood: string) => {
+    setMusicTrack("");
     setStoryboard((prev) => (prev ? { ...prev, bgmMood: mood } : prev));
   };
 
@@ -434,6 +438,8 @@ export default function ShortsPage() {
           </Link>
         </div>
       </div>
+
+      <MusicLibraryPicker value={musicTrack} onChange={setMusicTrack} disabled={busy} />
 
       <section className="flex w-full max-w-2xl flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
         <label htmlFor="narration-voice" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -632,10 +638,11 @@ export default function ShortsPage() {
                 <span className="shrink-0">배경음악</span>
                 <select
                   aria-label="배경음악 선택"
-                  value={storyboard.bgmMood}
+                  value={musicTrack || storyboard.bgmMood}
                   onChange={(event) => changeBgmMood(event.target.value)}
                   className="min-w-0 flex-1 rounded border border-zinc-300 bg-transparent px-2 py-1 text-zinc-800 dark:border-zinc-700 dark:text-zinc-200"
                 >
+                  {musicTrack && <option value={musicTrack}>{musicLibrary.find(t => t.id === musicTrack)?.title} · 내 오디오모음</option>}
                   {BGM_GROUPS.map(({ group, items }) => (
                     <optgroup key={group} label={group}>
                       {items.map((entry) => (
@@ -646,7 +653,7 @@ export default function ShortsPage() {
                     </optgroup>
                   ))}
                 </select>
-                <AudioPreviewButton kind="bgm" name={storyboard.bgmMood} />
+                <AudioPreviewButton kind="bgm" name={musicTrack || storyboard.bgmMood} />
               </div>
               <p className="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
                 기본 BGM {AI_BGM_MOODS.length}곡 · 효과음·환경음{" "}

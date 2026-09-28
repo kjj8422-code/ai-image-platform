@@ -37,6 +37,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from audio_mix import BED_CUES, apply_bed_envelope, bed_gain, cue_window
+from music_library import library_entry, resolve_library_track
 
 # 회사 프록시가 자체 서명 인증서로 TLS를 가로채기 때문에, 파이썬 기본 인증서 번들만
 # 쓰면 API/TTS 호출이 전부 CERTIFICATE_VERIFY_FAILED로 막힌다. 검증을 끄는 대신
@@ -874,6 +875,9 @@ RETIRED_SFX = {"soft_whoosh": "whoosh"}  # riser를 짧게 자른 것과 같은 
 
 def mood_family(mood: str) -> str:
     """제목 색·목소리 톤을 정할 때 쓰는 기본 분위기."""
+    entry = library_entry(mood, PROJECT_ROOT)
+    if entry:
+        return entry["family"]
     mood = RETIRED_BGM.get(mood, mood)
     return BGM_FAMILIES.get(mood, mood)
 
@@ -920,6 +924,9 @@ def find_bgm(mood: str, seed: str = "", avoid_vocals: bool = False):
 
     순서: 직접 넣은 한 곡(user/bgm/<분위기>.mp3) → 음악 모음 폴더에서 한 곡 → 기본 곡.
     """
+    selected = resolve_library_track(mood, PROJECT_ROOT, USER_BGM_DIR)
+    if selected:
+        return selected
     for name in dict.fromkeys((mood, mood_family(mood))):
         single = USER_BGM_DIR / f"{name}.mp3"
         if single.exists():

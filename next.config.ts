@@ -15,6 +15,7 @@ const nextConfig: NextConfig = {
     "/api/audio/preview": [
       "./.claude/skills/viral-shorts/assets/sfx/*.mp3",
       "./.claude/skills/viral-shorts/assets/bgm/*.mp3",
+      "./.claude/skills/viral-shorts/assets/library/*.mp3",
     ],
   },
 };
